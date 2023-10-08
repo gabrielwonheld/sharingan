@@ -23,6 +23,7 @@ unknown = []                           #Empty list to collect Unknown hosts
 
 os.system("")
 
+
 class color:
    PURPLE = '\033[95m'
    CYAN = '\033[96m'
@@ -36,6 +37,9 @@ class color:
    UNDERLINE = '\033[4m'
    END = '\033[0m'
 
+
+#fazer uma classe para definir keyboards
+
 def ipsorter(s):
     try:
         ip = int(ip_address(s))
@@ -43,8 +47,16 @@ def ipsorter(s):
         return (1, s)
     return (0, ip)
 
+
+# há um problema de autenticação que deve ser resolvido quando o usuário estiver usando o windows.
 def ping_test (ip,ping_count):
+    
+    
+    #verifica se a plataforma é windows ou linux
+
     if "win32" in platform:                   #platform equals win32 for Windows, equals linux for Linux, darwin for Mac
+        
+        #verifica se a plataforma está em chines
         if locale.getdefaultlocale()[0] == 'zh_CN':
             pattern = r"平均 = (\d+\S+)"
             pattern_ip = r"\[\d+.\d+.\d+.\d+\]"
@@ -53,29 +65,47 @@ def ping_test (ip,ping_count):
             ping_test = subprocess.Popen(["ping", "-n", ping_count, ip], stdout = subprocess.PIPE,stderr = subprocess.PIPE,encoding='cp936')
             origin_strs = ping_test.stdout.read() # 得到的是 bytes ====》 b'字符串内容'
             s = str(origin_strs)  # --> bytes 2 string
-        else:
+        else: 
             pattern = r"Average = (\d+\S+)"
-            pattern_ip = r"\[\d+.\d+.\d+.\d+\]"
+            pattern_ip = r"\[\d+.\d+.\d+.\d+\]" #Representa endereços IPs
             pattern_rtt = r"Minimum = (\d+ms), Maximum = (\d+ms), Average = (\d+ms)"
-            keyword = "Average"
-            ping_test = subprocess.Popen(["ping", "-n", ping_count, ip], stdout = subprocess.PIPE,stderr = subprocess.PIPE)
+            keyword = "Average" #esse tipo de autenticação não é o suficiente, pois se a plataforma estiver em um idioma diferente do inglês ele retornará um erro.
+            
+            #realiza o comando ping de acordo com a plataforma windows
+            ping_test = subprocess.Popen(["ping", "-n", ping_count, ip], stdout = subprocess.PIPE,stderr = subprocess.PIPE) # realiza o comando ping, usando o pipe para redirecionar a saída de erro (stderr) e a saída padrão (stdout) 
+   
+   
     elif "darwin" in platform:                 #Linux & Mac
         pattern = r"= \d+\.\d+/(\d+\.\d+)/\d+\.\d+/\d+\.\d+ ms"
         pattern_rtt = r"= (\d+\.\d+)/(\d+\.\d+)/(\d+\.\d+)/\d+\.\d+ ms"
         pattern_ip = r"\(\d+.\d+.\d+.\d+\)"
         keyword = "avg"
-        ping_test = subprocess.Popen(["ping", "-t 4","-c", ping_count, ip], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
+        
+        #Realiza o comando ping de acordo com a plataforma mac ou linux. Provavelmente terei que substituir por uma confirmação via socket
+        ping_test = subprocess.Popen(["ping", "-t 4","-c", ping_count, ip], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)  
     else:
         pattern = r"= \d+\.\d+/(\d+\.\d+)/\d+\.\d+/\d+\.\d+ ms"
         pattern_rtt = r"= (\d+\.\d+)/(\d+\.\d+)/(\d+\.\d+)/\d+\.\d+ ms"
         pattern_ip = r"\(\d+.\d+.\d+.\d+\)"
         keyword = "avg"
+        
+        #Realiza o comando ping de acordo com a plataforma. Provavelmente terei que substituir por uma confirmação via socket
         ping_test = subprocess.Popen(["ping", "-W 4","-c", ping_count, ip], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
-    output = ping_test.communicate()[0]
-    output_str = str(output)
+    
+    #pega a saída padrão
+    output = ping_test.communicate()[0]#recebe a saida do comando ping em formato binario
+    output_str = str(output) #transforma a saída binária em uma string
+
+
+    #verificar o que é ! tem a ver com a zh_CN win32
     if "win32" in platform and locale.getdefaultlocale()[0] == 'zh_CN':
         output_str = s
+    
+
+
     if keyword in output_str:                #If Average latency is available, it's reachable
+       
+       #verifica se a entrada padrão é ip ou um hostname, pois o sistema aceita tanto as entradas via hostname quanto ipaddress
         try:
             ipaddress.ip_address(ip)           #Check if it's an IP address
             type = "ip"
@@ -84,21 +114,31 @@ def ping_test (ip,ping_count):
         avg = re.findall(pattern, output_str)[0]   #Regex to find latency
         rtt = re.findall(pattern_rtt, output_str)[0]
         
+       
+       
         if "linux" in platform or "darwin" in platform:              
             rtt_i = [0, 2, 1]
             rtt = [rtt[i]+"ms" for i in rtt_i]               #reorder to min/max/avg for linux&mac
             avg = avg+"ms"
+       
         if type == "ip":
             print("IP: {0:49} {1:>9}  {2:>9}  {3:>9}".format(ip, rtt[0],rtt[1],rtt[2]))
+       
         else:                                   
             ipadd = re.findall(pattern_ip,output.decode())[0]       #if type is hostname, add resolved IP address
             print("Host: {0:47} {1:>9}  {2:>9}  {3:>9}".format(ip+" "+ipadd,rtt[0],rtt[1],rtt[2]))
         alive.append(ip)
         alive_avg.append("{0:41} RTT:{1}".format(ip, avg))
+    
     elif "could not find host" in output_str or "nknown host" in output_str or "not known" in output_str:      #unknown hosts
         unknown.append(ip)
+    
     else:
         dead.append(ip)            #Else, it's not reachable
+
+
+
+
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
