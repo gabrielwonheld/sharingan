@@ -23,7 +23,6 @@ unknown = []                           #Empty list to collect Unknown hosts
 
 os.system("")
 
-
 class color:
    PURPLE = '\033[95m'
    CYAN = '\033[96m'
@@ -37,9 +36,6 @@ class color:
    UNDERLINE = '\033[4m'
    END = '\033[0m'
 
-
-#fazer uma classe para definir keyboards
-
 def ipsorter(s):
     try:
         ip = int(ip_address(s))
@@ -47,16 +43,8 @@ def ipsorter(s):
         return (1, s)
     return (0, ip)
 
-
-# há um problema de autenticação que deve ser resolvido quando o usuário estiver usando o windows.
 def ping_test (ip,ping_count):
-    
-    
-    #verifica se a plataforma é windows ou linux
-
     if "win32" in platform:                   #platform equals win32 for Windows, equals linux for Linux, darwin for Mac
-        
-        #verifica se a plataforma está em chines
         if locale.getdefaultlocale()[0] == 'zh_CN':
             pattern = r"平均 = (\d+\S+)"
             pattern_ip = r"\[\d+.\d+.\d+.\d+\]"
@@ -65,48 +53,29 @@ def ping_test (ip,ping_count):
             ping_test = subprocess.Popen(["ping", "-n", ping_count, ip], stdout = subprocess.PIPE,stderr = subprocess.PIPE,encoding='cp936')
             origin_strs = ping_test.stdout.read() # 得到的是 bytes ====》 b'字符串内容'
             s = str(origin_strs)  # --> bytes 2 string
-        else: 
+        else:
             pattern = r"Average = (\d+\S+)"
-            pattern_ip = r"\[\d+.\d+.\d+.\d+\]" #Representa endereços IPs
+            pattern_ip = r"\[\d+.\d+.\d+.\d+\]"
             pattern_rtt = r"Minimum = (\d+ms), Maximum = (\d+ms), Average = (\d+ms)"
-            keyword = "Average" #esse tipo de autenticação não é o suficiente, pois se a plataforma estiver em um idioma diferente do inglês ele retornará um erro.
-            
-            #realiza o comando ping de acordo com a plataforma windows
-            ping_test = subprocess.Popen(["ping", "-n", ping_count, ip], stdout = subprocess.PIPE,stderr = subprocess.PIPE) # realiza o comando ping, usando o pipe para redirecionar a saída de erro (stderr) e a saída padrão (stdout) 
-   
-   
+            keyword = "Average"
+            ping_test = subprocess.Popen(["ping", "-n", ping_count, ip], stdout = subprocess.PIPE,stderr = subprocess.PIPE)
     elif "darwin" in platform:                 #Linux & Mac
         pattern = r"= \d+\.\d+/(\d+\.\d+)/\d+\.\d+/\d+\.\d+ ms"
         pattern_rtt = r"= (\d+\.\d+)/(\d+\.\d+)/(\d+\.\d+)/\d+\.\d+ ms"
         pattern_ip = r"\(\d+.\d+.\d+.\d+\)"
         keyword = "avg"
-        
-        #Realiza o comando ping de acordo com a plataforma mac ou linux. Provavelmente terei que substituir por uma confirmação via socket
-        ping_test = subprocess.Popen(["ping", "-t 4","-c", ping_count, ip], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)  
+        ping_test = subprocess.Popen(["ping", "-t 4","-c", ping_count, ip], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
     else:
         pattern = r"= \d+\.\d+/(\d+\.\d+)/\d+\.\d+/\d+\.\d+ ms"
         pattern_rtt = r"= (\d+\.\d+)/(\d+\.\d+)/(\d+\.\d+)/\d+\.\d+ ms"
         pattern_ip = r"\(\d+.\d+.\d+.\d+\)"
         keyword = "avg"
-        
-        #Realiza o comando ping de acordo com a plataforma. Provavelmente terei que substituir por uma confirmação via socket
-        #Não vou poder usar o ping, pois ele usa o protocolo ICMP e eu preciso do tcp/ip para confirmar as protas.
         ping_test = subprocess.Popen(["ping", "-W 4","-c", ping_count, ip], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
-    
-    #pega a saída padrão
-    output = ping_test.communicate()[0]#recebe a saida do comando ping em formato binario
-    output_str = str(output) #transforma a saída binária em uma string
-
-
-    #verificar o que é ! tem a ver com a zh_CN win32
+    output = ping_test.communicate()[0]
+    output_str = str(output)
     if "win32" in platform and locale.getdefaultlocale()[0] == 'zh_CN':
         output_str = s
-    
-
-
     if keyword in output_str:                #If Average latency is available, it's reachable
-       
-       #verifica se a entrada padrão é ip ou um hostname, pois o sistema aceita tanto as entradas via hostname quanto ipaddress
         try:
             ipaddress.ip_address(ip)           #Check if it's an IP address
             type = "ip"
@@ -115,37 +84,24 @@ def ping_test (ip,ping_count):
         avg = re.findall(pattern, output_str)[0]   #Regex to find latency
         rtt = re.findall(pattern_rtt, output_str)[0]
         
-       
-       
         if "linux" in platform or "darwin" in platform:              
             rtt_i = [0, 2, 1]
             rtt = [rtt[i]+"ms" for i in rtt_i]               #reorder to min/max/avg for linux&mac
             avg = avg+"ms"
-       
         if type == "ip":
             print("IP: {0:49} {1:>9}  {2:>9}  {3:>9}".format(ip, rtt[0],rtt[1],rtt[2]))
-       
         else:                                   
             ipadd = re.findall(pattern_ip,output.decode())[0]       #if type is hostname, add resolved IP address
             print("Host: {0:47} {1:>9}  {2:>9}  {3:>9}".format(ip+" "+ipadd,rtt[0],rtt[1],rtt[2]))
         alive.append(ip)
         alive_avg.append("{0:41} RTT:{1}".format(ip, avg))
-    
     elif "could not find host" in output_str or "nknown host" in output_str or "not known" in output_str:      #unknown hosts
         unknown.append(ip)
-    
     else:
         dead.append(ip)            #Else, it's not reachable
 
-
-
-
-
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-   
-    #parece que está criando argumentos. estudar a biblioteca argparser
-    #transformar em função
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-f", "--file", nargs="?", action="store", help="specify text file that stores CIDR/hostname/IP")
     group.add_argument("address", nargs="?", default=[], help= textwrap.dedent('''CIDR/hostname/IP
@@ -156,13 +112,9 @@ Example:
     parser.add_argument("-n", "--count", nargs="?", action="store", help="number of echo requests to send, default 3")
     parser.add_argument("-w", "--write", action="store_true", help="write results to txt files")
     parser.add_argument("-V", "--version", action="version", version="PingNet "+version)
-    
-    
-    args = parser.parse_args(args=None if sys.argv[1:] else ['--help']) #se não houver argumento o padrão é --help
+    args = parser.parse_args(args=None if sys.argv[1:] else ['--help'])
     ping_count = args.count if args.count else "3" 
-    
     print("\n"+" "*34+color.BOLD + "PingNet [v"+version+"]" + color.END)
-    
     if "darwin" in platform:            #set "ulimit -n" higher for Mac, to avoid "OSError: [Errno 24] Too many open files"
         target_procs=50000
         cur_proc, max_proc=resource.getrlimit(resource.RLIMIT_NOFILE)
@@ -172,7 +124,6 @@ Example:
     if "win32" in platform:
         import ctypes
         ctypes.windll.msvcrt._setmaxstdio(2048)
-   
     date = datetime.date.today()
     now = datetime.datetime.now()
     
@@ -183,15 +134,13 @@ Example:
     thread_list = []                        
     totalAddress = 0                              #total address count
 
-    if args.file:                             #if argument -f is specified. Se o argumento for um arquivo ele abrirá o arquivo e irá ler.
+    if args.file:                             #if argument -f is specified
         f = open(args.file, 'r')  # open file
         thread_list = []
         max_threads = 1024
         def ping_all(ip_address):
             ping_test(str(ip_address), ping_count)
 
-
-        #provavelmente é a biblioteca para fazer multithreads
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
             for line in f:
                 if line != "\n" and not line.startswith("#"):
@@ -206,7 +155,7 @@ Example:
         for th in concurrent.futures.as_completed(thread_list):
             th.result()
 
-    if args.address: #se for um endereço ip ele virá para cá
+    if args.address:
         if "/" in args.address:  # If Address has subnet mask symbol(/), eg: 192.168.1.0/30
             try: 
                 network = ipaddress.IPv4Network(args.address, strict=False)  # validate if it's a CIDR network
@@ -232,16 +181,11 @@ Example:
 
     time_elapsed = time.time() - start_time            #calculate elapsed time
     print("-------------------------------------------------------------------------------------")
-    
     print("{0:55} Time elapsed:{1:>8.2f} seconds\n".format("Number of total addresses: "+str(totalAddress),time_elapsed))
-    
-    #transformar em função
     alive_sorted = sorted(alive, key=ipsorter)
     print(color.BOLD+color.UNDERLINE+"Alive:"+color.END+" [{}]\n {} ".format(len(alive),(", ").join(alive_sorted)))
-    
-    #dead_sorted = sorted(dead, key=ipsorter)
-    #print(color.BOLD+color.UNDERLINE+"Dead:"+color.END+" [{}]\n {}".format(len(dead),(", ").join(dead_sorted)))
-    
+    dead_sorted = sorted(dead, key=ipsorter)
+    print(color.BOLD+color.UNDERLINE+"Dead:"+color.END+" [{}]\n {}".format(len(dead),(", ").join(dead_sorted)))
     unknown_sorted = sorted(unknown, key=ipsorter)
     print(color.BOLD+color.UNDERLINE+"Unknown:"+color.END+" [{}]\n {}".format(len(unknown),(", ").join(unknown_sorted)))
     
