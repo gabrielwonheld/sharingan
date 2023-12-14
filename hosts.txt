@@ -1,6 +1,0 @@
-192.168.13.0/24
-kevinjin.com        #myblog
-1.1.1.1             #Cloudflare DNS
-invalid.address
-google.com
-#8.8.4.4

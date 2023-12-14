@@ -11,6 +11,9 @@ class Hosts():
     def __init__(self, hosts, port):
         self.hosts = hosts
         self.port = port
+        self.active_host = []
+        self.inactive_host = []
+
 
     def check_host(self, host, port):
 
@@ -21,10 +24,12 @@ class Hosts():
             result = s.connect_ex((host, port))
 
             if result == 0:
-                 ... #print(f'Ativo: {host}:{port}')
+                self.active_host.append(host)
+        
             else:
-                print(f'Inativo: {host}:{port}')
-
+                self.inactive_host.append(host)                
+        
+        
         except socket.error as e:
             print(f'Erro ao conectar a {host}:{port}: {e}')
 
@@ -32,7 +37,7 @@ class Hosts():
             s.close()
 
 
-    # Crie uma thread para cada host
+    # Make a thread for each host
     def threads(self):
 
         threads = []
@@ -42,6 +47,16 @@ class Hosts():
             threads.append(thread)
             thread.start()
 
-    # Aguarde todas as threads terminarem
+    # wait until all threads completed
         for thread in threads:
             thread.join()
+
+    
+    def get_active(self):
+       #print(self.active_host)
+       return self.active_host
+    
+    
+    def get_inactive(self):
+       return self.inactive_host
+        
