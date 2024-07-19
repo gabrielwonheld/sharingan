@@ -1,0 +1,12 @@
+---
+hosts:
+  gateway: 192.168.0.1
+  google: google.com.br
+  intranet: 10.37.0.3
+
+
+common_port: 80
+#ports:
+#  gateway: 80
+#  google: 443
+#  intranet: 22

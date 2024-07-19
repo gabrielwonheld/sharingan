@@ -1,0 +1,18 @@
+#!/usr/bin/python
+
+from services.monitor_services import Monitor_Service
+
+
+
+
+def main():
+
+	Monitor_Service.run_monitor()
+	
+
+
+if __name__ == '__main__':
+
+	
+	main()
+
