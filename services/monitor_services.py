@@ -23,17 +23,19 @@ class Monitor_Service():
 
         try:
             
+            Banner.sharingan()
             while True:
-                Banner.sharingan()
-                monit.get_active()
-                #monit.get_inactive()
+                
                 
 
-    
                 
-                Clean.clear_list(monit.list_inactive_host,monit.list_active_host,monit.list_total_host) #ao terminar o loop ira apagar as listas de monitor_core.Monit()
+                
+                monit.get_active()
+                #monit.get_inactive()
+                   
+                
                 sleep(5)
-                Clean.clear_terminal()
+                #Clean.clear_terminal()
                 
     
         except KeyboardInterrupt:

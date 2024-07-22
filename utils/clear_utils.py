@@ -2,6 +2,7 @@ import os
 
 
 class Clean():
+    
 
     @staticmethod
     def clear_terminal():

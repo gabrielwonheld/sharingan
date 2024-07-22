@@ -29,6 +29,8 @@ class MonitDisplay():
 
               
               console.print(table)
+
+              print(self.inactive_host,self.active_host,self.total_hosts)
               Clean.clear_list(self.inactive_host,self.active_host,self.total_hosts)
 
               
@@ -49,7 +51,7 @@ class MonitDisplay():
               table.add_row("Total de Inativos", str(len(self.inactive_host)))
 
               console.print(table)
-              Clean.clear_list(self.inactive_host,self.active_host,self.total_hosts)
+              #Clean.clear_list(self.inactive_host,self.active_host,self.total_hosts)
 
        def dysplay_total(self):
               ...
