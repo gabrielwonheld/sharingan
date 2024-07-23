@@ -23,19 +23,17 @@ class Monitor_Service():
 
         try:
             
-            Banner.sharingan()
-            while True:
-                
-                
-
+            
+            while True:  
                 
                 
                 monit.get_active()
+                
                 #monit.get_inactive()
                    
                 
                 sleep(5)
-                #Clean.clear_terminal()
+                
                 
     
         except KeyboardInterrupt:

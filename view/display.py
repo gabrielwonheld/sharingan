@@ -14,7 +14,7 @@ class MonitDisplay():
               self.total_hosts = total if total is not None else [] 
               
        
-       def dysplay_active(self):
+       def display_active(self):
        
               console = Console()
               table = Table(title="Sharingan",
@@ -30,14 +30,12 @@ class MonitDisplay():
               
               console.print(table)
 
-              print(self.inactive_host,self.active_host,self.total_hosts)
-              Clean.clear_list(self.inactive_host,self.active_host,self.total_hosts)
-
+              
               
               
        
        
-       def dysplay_inactive(self):
+       def display_inactive(self):
        
               console = Console()
               table = Table(title="Sharingan",
@@ -51,11 +49,15 @@ class MonitDisplay():
               table.add_row("Total de Inativos", str(len(self.inactive_host)))
 
               console.print(table)
-              #Clean.clear_list(self.inactive_host,self.active_host,self.total_hosts)
-
-       def dysplay_total(self):
-              ...
-        
-
+              
+       def display_total(self):
+              print('Hosts Ativos')
+              # Justificando ao centro
+              #print("\nJustificando ao centro:")
+              #print(f"{headers[0]:^10} | {headers[1]:^3}")
+              
+              for row in self.active_host:
+                  print(f"{row:>20} | {80:>10}")
+       
 
 

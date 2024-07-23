@@ -1,8 +1,9 @@
 ---
 hosts:
   gateway: 192.168.0.1
-  google: google.com.br
+  google: 8.8.8.8
   intranet: 10.37.0.3
+  teste: 10.37.0.4
 
 
 common_port: 80
