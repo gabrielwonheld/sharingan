@@ -14,6 +14,7 @@ class Monit:
 
         self.host = HOST
         self.port = PORT
+        self.common_port = PORT.get('common_port')
         
         self.list_active_host = []
         self.list_inactive_host = []
@@ -39,6 +40,7 @@ class Monit:
                         executor.submit(func, host, details['addr'], port):(host,port)
                         for host, details in self.host.items()
                         for port in details['ports']
+                        
                         }
             
             for future in as_completed(futures):
@@ -48,6 +50,7 @@ class Monit:
                 status = result[2]
 
                 results.append(future.result())
+                
 
         return results
 

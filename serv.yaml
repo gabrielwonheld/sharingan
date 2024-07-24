@@ -1,13 +1,9 @@
----
 hosts:
-  gateway: 192.168.0.1
-  google: 8.8.8.8
-  intranet: 10.37.0.3
-  teste: 10.37.0.4
-
-
-common_port: 80
-#ports:
-#  gateway: 80
-#  google: 443
-#  intranet: 22
+  intranet:
+    addr: 10.37.0.3
+  gateway:
+    addr: 192.168.1.1
+  google:
+    addr: google.com
+    
+common_port: 9999
