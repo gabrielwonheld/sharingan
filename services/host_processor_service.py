@@ -15,14 +15,18 @@ class Host():
                 with open(file, 'r') as arquivo:
 
                     data = yaml.safe_load(arquivo)
-                    ports = data.get('ports', {})
-                    common_port = data.get('common_port', {})
+                    #ports = data.get('ports', {})
                     hosts = data.get('hosts',{})
+                    common_port = data.get('common_port', None)
+                    
 
                     
                     if common_port:
  
                         ports = {host: common_port for host in hosts}
+                    
+                    else:
+                        ports = {host: details['ports'] for host, details in hosts.items()}
                     
                     
                     return hosts, ports

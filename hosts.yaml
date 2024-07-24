@@ -1,32 +1,17 @@
----
 hosts:
-  DVR Pórtico: 10.37.0.101
-  Pórtico-Giratória: 10.37.0.101
-  DVR Reserva 01: 10.37.1.26
-  DVR Reserva 02: 10.37.1.81
-  NVR 01: 10.37.0.210
-  Guarda-antessala: 10.37.0.216
-  Guarda-Solário: 10.37.0.215
-  Pav-Sec Info: 10.37.0.213
-  Pav-s2: 10.37.0.212
-  Pav-Ordenança: 10.37.0.211
-  Pav-Saguão: 10.37.0.214
-  Aloj-SDEV-CAP: 10.37.0.225
-  Aloj-3ºSGT: 10.37.0.224
-  Aloj-CB-SD 2CC: 10.37.0.219
-  Aloj-CB-SD 4CC: 10.37.0.220
-  Aloj-CB-SD CAP (Larajeiras): 10.37.0.217
-  Aloj-CB-SD CAP: 10.37.0.218
-  Aloj-CB-SD 3CC: 10.37.0.222
-  Aloj-CB-SD 1CC: 10.37.0.221
-  Fundos SIB: 10.37.0.223
-  Rancho-Depósito: 10.37.0.226
-  NVR 02: 10.37.0.100
-  GUARDA -PEL COM: 10.37.0.227
-  SIB- SALA COMPUTADORES: 10.37.0.228
-  SIB - CORREDOR: 10.37.0.229
-  HT-FRENTE: 10.37.4.109
-  HT-FUNDOS: 10.37.4.110
-
-common_port: 554
-
+  intranet:
+    addr: 10.37.0.3
+    ports:
+      - 80
+      - 443
+  gateway:
+    addr: 192.168.1.1
+    ports:
+      - 22
+      - 8080
+  google:
+    addr: google.com
+    ports:
+      - 443
+      - 8080
+#common_port: 9999
