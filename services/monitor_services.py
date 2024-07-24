@@ -16,10 +16,11 @@ class Monitor_Service():
         Validation.validationArgs()
 		
        
-        HOSTS, PORT = Host.read_yaml_host()
+        HOSTS = Host.read_yaml_host()
        
 
-        monit = Monit(HOSTS,PORT)
+        monit = Monit(HOSTS)
+        #print(HOSTS, PORT)
 
         try:
             

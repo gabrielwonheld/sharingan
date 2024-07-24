@@ -1,6 +1,5 @@
 import yaml, sys
 
-
 class Host():
 
 
@@ -15,21 +14,17 @@ class Host():
                 with open(file, 'r') as arquivo:
 
                     data = yaml.safe_load(arquivo)
-                    #ports = data.get('ports', {})
                     hosts = data.get('hosts',{})
                     common_port = data.get('common_port', None)
                     
 
                     
-                    if common_port:
- 
-                        ports = {host: common_port for host in hosts}
+                    for host, info in hosts.items():
+                        if 'ports' not in info and common_port:
+                             info['ports'] = [common_port]
+
                     
-                    else:
-                        ports = {host: details['ports'] for host, details in hosts.items()}
-                    
-                    
-                    return hosts, ports
+                return hosts
                 
             except Exception as e:
                 print(e)

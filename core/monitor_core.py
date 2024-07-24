@@ -9,12 +9,12 @@ lock = threading.Lock()
 
 class Monit:
 
-    def __init__(self, HOST, PORT):
+    def __init__(self, HOST):
         
 
         self.host = HOST
-        self.port = PORT
-        self.common_port = PORT.get('common_port')
+        #self.port = PORT
+        #self.common_port = PORT.get('common_port')
         
         self.list_active_host = []
         self.list_inactive_host = []
@@ -35,7 +35,7 @@ class Monit:
 
         results = []
         with ThreadPoolExecutor(max_workers=10) as executor:
-
+        
             futures = {
                         executor.submit(func, host, details['addr'], port):(host,port)
                         for host, details in self.host.items()
@@ -65,7 +65,7 @@ class Monit:
 
             self.list_total_host.append(f'{nome}:{port}')
             if status:
-                self.list_active_host.append(f'{nome} {port} {addr}')
+                self.list_active_host.append(f'{nome}')
                 #self.dic_active_host.update('{nome}':'{addr}', {nome}:{port})
                 self.dic_active_port_host.update({f'{nome}':f'{port}'})
                 self.dic_active_addr_host.update({f'{nome}':f'{addr}'})
