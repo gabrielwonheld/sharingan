@@ -13,22 +13,22 @@ class Monit:
         
 
         self.host = HOST
-        #self.port = PORT
-        #self.common_port = PORT.get('common_port')
         
         self.list_active_host = []
         self.list_inactive_host = []
         self.list_total_host = []
 
 
-        self.list_previous_active_host = []
-        self.list_previous_inactive_host = []
+        self.dic_previous_active_host = {}
+        self.dic_previous_inactive_host = {}
 
         self.dic_active_host = {}
         self.dic_active_port_host = {}
         self.dic_active_addr_host = {}
 
-
+        self.dic_inactive_host = {}
+        self.dic_inactive_port_host = {}
+        self.dic_inactive_addr_host = {}
    
     def all_run_threads(self,func):
 
@@ -37,90 +37,119 @@ class Monit:
         with ThreadPoolExecutor(max_workers=10) as executor:
         
             futures = {
-                        executor.submit(func, host, details['addr'], port):(host,port)
-                        for host, details in self.host.items()
-                        for port in details['ports']
+                executor.submit(func, host, details['addr'], port):(host,port)
+                for host, details in self.host.items()
+                for port in details['ports']
                         
-                        }
+            }
             
             for future in as_completed(futures):
-                host, port = futures[future]
-                
                 result = future.result()
-                status = result[2]
-
-                results.append(future.result())
-                
+                results.append(result)
 
         return results
 
 
-    def separete_results(self):
+    def separate_results(self):
         
         results = self.all_run_threads(check_host)
 
 
         for nome,addr,port, status in results:
-            
-
             self.list_total_host.append(f'{nome}:{port}')
+
             if status:
-                self.list_active_host.append(f'{nome}')
-                #self.dic_active_host.update('{nome}':'{addr}', {nome}:{port})
-                self.dic_active_port_host.update({f'{nome}':f'{port}'})
-                self.dic_active_addr_host.update({f'{nome}':f'{addr}'})
-            else:
-                self.list_inactive_host.append(f'{nome}:{port}')
+                #self.list_active_host.append(f'{nome}')
+                #self.dic_active_host[nome].append(port)
+                
+                if nome not in self.dic_active_port_host:
+                    self.dic_active_port_host[nome] = []
+                self.dic_active_port_host[nome].append(port)
+                
+                #self.dic_active_port_host = {nome : sorted(port) for nome, port in self.dic_active_port_host.items()}
+                # Organiza as portas em ordem crescente
+                self.dic_active_port_host[nome] = sorted(self.dic_active_port_host[nome])
+                self.dic_active_addr_host[nome] = addr
+
+                #if nome not in self.dic_active_addr_host:
+                #    self.dic_active_addr_host[nome] = []
+                
+                self.dic_active_addr_host[nome] = addr
+
+            if not status:
+                #self.dic_inactive_host[nome]
+
+                if nome not in self.dic_inactive_port_host:
+                    self.dic_inactive_port_host[nome] = []
+                self.dic_inactive_port_host[nome].append(port)
+                
+                #self.dic_active_port_host = {nome : sorted(port) for nome, port in self.dic_active_port_host.items()}
+                # Organiza as portas em ordem crescente
+                self.dic_inactive_port_host[nome] = sorted(self.dic_inactive_port_host[nome])
+                self.dic_inactive_addr_host[nome] = addr
+                
+                #if nome not in self.dic_inactive_addr_host:
+                #    self.dic_inactive_addr_host[nome] = []
+                #
+                #self.dic_inactive_addr_host[nome] = addr
+
     
 
     def get_active(self):
 
             with lock:
                 
+                self.dic_active_port_host.clear()
+                self.dic_active_addr_host.clear()
                 Clean.clear_list(self.list_active_host,self.list_inactive_host,self.list_total_host)
                 
-                self.separete_results()
+                self.separate_results()
 
+                
                 self.list_total_host.sort()
                 self.list_active_host.sort()
                 self.list_inactive_host.sort()
                 
-                if self.list_previous_active_host != self.list_active_host:
+                if self.dic_previous_active_host != self.dic_active_port_host:
 
                     Clean.clear_terminal()
                     Banner.sharingan()
 
-                    display_host = MonitDisplay(active=self.list_active_host, total=self.list_total_host)
+                    display_host = MonitDisplay(active=self.dic_active_port_host, total=self.list_total_host)
                     display_host.display_active()
-                    #display_host.display_total()
-                    self.list_previous_active_host = self.list_active_host.copy()
+                    self.dic_previous_active_host = self.dic_active_port_host.copy()
                     
                      
-                
-            return self.list_previous_active_host
+            return self.dic_previous_active_host
             
 
 
        
     def get_inactive(self):
 
+            print(self.dic_inactive_addr_host)
+            #print(self.dic_inactive_port_host)
             with lock:
                 
+                self.dic_inactive_port_host.clear()
+                self.dic_inactive_addr_host.clear()
                 Clean.clear_list(self.list_active_host,self.list_inactive_host,self.list_total_host)
                 
-                self.separete_results()
+                self.separate_results()
 
-                self.list_total_host.sort()
-                self.list_active_host.sort()
+
+                #self.list_total_host.sort()
+                #self.list_active_host.sort()
                 self.list_inactive_host.sort()                
                 
-                if self.list_previous_inactive_host != self.list_inactive_host:
+                if self.dic_previous_inactive_host != self.dic_inactive_port_host:
 
                     Clean.clear_terminal()
                     Banner.sharingan()
-                    display_host = MonitDisplay(inactive=self.list_inactive_host, total=self.list_total_host)
+                    
+                    display_host = MonitDisplay(inactive=self.dic_inactive_port_host, total=self.list_total_host)
                     display_host.display_inactive()
                     #display_host.display_total()
-                    self.list_previous_inactive_host = self.list_inactive_host.copy()  
+                    self.dic_previous_inactive_host = self.dic_inactive_port_host.copy()  
 
-            return self.list_previous_inactive_host
+            return self.dic_previous_inactive_host

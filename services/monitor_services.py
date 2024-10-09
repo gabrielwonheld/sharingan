@@ -28,9 +28,9 @@ class Monitor_Service():
             while True:  
                 
                 
-                monit.get_active()
+                #monit.get_active()
                 
-                #monit.get_inactive()
+                monit.get_inactive()
                    
                 
                 sleep(5)
