@@ -1,18 +1,54 @@
-#!/usr/bin/python
+'''#!/usr/bin/python
 
 from services.monitor_services import Monitor_Service
-
+import argparse
 
 
 
 def main():
 
-	Monitor_Service.run_monitor()
+	monitor = Monitor_Service()
 	
+	#ativos = monitor.get_active()
+	#inativos = monitor.get_inactive()
 
+	parser = argparse.ArgumentParser(description="Monitoramento de hosts")
+	parser.add_argument('--active', action='store_true', help='obter hosts ativos')
+	parser.add_argument('--inactive', action='store_true', help='obter hosts inativos')
+
+	args = parser.parse_args()
+
+
+	if args.active:
+		monitor.get_active()
+	if args.inactive:
+		monitor.get_inactive()
 
 if __name__ == '__main__':
 
 	
-	main()
+	main()'''
+
+#!/usr/bin/python
+
+from services.monitor_services import Monitor_Service
+import argparse
+
+def main():
+    parser = argparse.ArgumentParser(description="Monitoramento de hosts")
+    parser.add_argument('--active', action='store_true', help='obter hosts ativos')
+    parser.add_argument('--inactive', action='store_true', help='obter hosts inativos')
+    parser.add_argument('hosts_file', type=str, help='caminho para o arquivo de hosts (YAML)')
+
+    args = parser.parse_args()
+
+    monitor = Monitor_Service(args.hosts_file)  # Passa o arquivo de hosts para o construtor
+    
+    if args.inactive:
+        monitor.get_inactive()
+    else:
+        monitor.get_active()  # Chama get_active por padrão se --inactive não for passado
+
+if __name__ == '__main__':
+    main()
 

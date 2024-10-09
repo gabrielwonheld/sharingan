@@ -4,14 +4,12 @@ class Host():
 
 
     @staticmethod
-    def read_yaml_host():
-
-        file = sys.argv[1]
+    def read_yaml_host(hosts_file):
         
-        if file.endswith(('.yaml','.yml')):
+        if hosts_file.endswith(('.yaml','.yml')):
             
             try:
-                with open(file, 'r') as arquivo:
+                with open(hosts_file, 'r') as arquivo:
 
                     data = yaml.safe_load(arquivo)
                     hosts = data.get('hosts',{})

@@ -1,43 +1,30 @@
 from utils.validation_utils import Validation
-from utils.clear_utils import Clean
 from core.monitor_core import Monit
 from services.host_processor_service import Host
-from view.banner import Banner
-
-from time import sleep
 import sys
+from time import sleep
 
+class Monitor_Service:
 
-class Monitor_Service():
-
-    @staticmethod
-    def run_monitor():
-        
+    def __init__(self, hosts_file):
         Validation.validationArgs()
-		
-       
-        HOSTS = Host.read_yaml_host()
-       
+        self.HOSTS = Host.read_yaml_host(hosts_file)  # Passa o arquivo de hosts
+        self.monit = Monit(self.HOSTS)
 
-        monit = Monit(HOSTS)
-        #print(HOSTS, PORT)
-
+    def get_active(self):
         try:
-            
-            
-            while True:  
-                
-                
-                #monit.get_active()
-                
-                monit.get_inactive()
-                   
-                
+            while True:
+                self.monit.get_active()
                 sleep(5)
-                
-                
-    
         except KeyboardInterrupt:
             print("\nRecebido sinal de interrupção (Ctrl+C). Saindo...")
             sys.exit(1)
-    
+
+    def get_inactive(self):
+        try:
+            while True:
+                self.monit.get_inactive()
+                sleep(5)
+        except KeyboardInterrupt:
+            print("\nRecebido sinal de interrupção (Ctrl+C). Saindo...")
+            sys.exit(1)

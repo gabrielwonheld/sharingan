@@ -59,39 +59,27 @@ class Monit:
             self.list_total_host.append(f'{nome}:{port}')
 
             if status:
-                #self.list_active_host.append(f'{nome}')
-                #self.dic_active_host[nome].append(port)
+
                 
                 if nome not in self.dic_active_port_host:
                     self.dic_active_port_host[nome] = []
                 self.dic_active_port_host[nome].append(port)
                 
-                #self.dic_active_port_host = {nome : sorted(port) for nome, port in self.dic_active_port_host.items()}
                 # Organiza as portas em ordem crescente
                 self.dic_active_port_host[nome] = sorted(self.dic_active_port_host[nome])
                 self.dic_active_addr_host[nome] = addr
 
-                #if nome not in self.dic_active_addr_host:
-                #    self.dic_active_addr_host[nome] = []
-                
-                self.dic_active_addr_host[nome] = addr
 
             if not status:
-                #self.dic_inactive_host[nome]
+
 
                 if nome not in self.dic_inactive_port_host:
                     self.dic_inactive_port_host[nome] = []
                 self.dic_inactive_port_host[nome].append(port)
                 
-                #self.dic_active_port_host = {nome : sorted(port) for nome, port in self.dic_active_port_host.items()}
                 # Organiza as portas em ordem crescente
                 self.dic_inactive_port_host[nome] = sorted(self.dic_inactive_port_host[nome])
                 self.dic_inactive_addr_host[nome] = addr
-                
-                #if nome not in self.dic_inactive_addr_host:
-                #    self.dic_inactive_addr_host[nome] = []
-                #
-                #self.dic_inactive_addr_host[nome] = addr
 
     
 
@@ -127,8 +115,6 @@ class Monit:
        
     def get_inactive(self):
 
-            print(self.dic_inactive_addr_host)
-            #print(self.dic_inactive_port_host)
             with lock:
                 
                 self.dic_inactive_port_host.clear()

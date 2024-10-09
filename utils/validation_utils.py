@@ -13,6 +13,6 @@ class Validation():
         
         qtdArgs = int(len(sys.argv))
 
-        if qtdArgs < 2 or qtdArgs >= 3:
+        if qtdArgs < 2 or qtdArgs >= 4:
             Banner.modoUso()
             sys.exit(1)
