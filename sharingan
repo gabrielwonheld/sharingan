@@ -1,34 +1,3 @@
-'''#!/usr/bin/python
-
-from services.monitor_services import Monitor_Service
-import argparse
-
-
-
-def main():
-
-	monitor = Monitor_Service()
-	
-	#ativos = monitor.get_active()
-	#inativos = monitor.get_inactive()
-
-	parser = argparse.ArgumentParser(description="Monitoramento de hosts")
-	parser.add_argument('--active', action='store_true', help='obter hosts ativos')
-	parser.add_argument('--inactive', action='store_true', help='obter hosts inativos')
-
-	args = parser.parse_args()
-
-
-	if args.active:
-		monitor.get_active()
-	if args.inactive:
-		monitor.get_inactive()
-
-if __name__ == '__main__':
-
-	
-	main()'''
-
 #!/usr/bin/python
 
 from services.monitor_services import Monitor_Service

@@ -1,9 +1,9 @@
 hosts:
   intranet:
     addr: 10.37.0.3
-  gateway:
+  gatewaaaaaaaaaay:
     addr: 192.168.1.1
-  google:
+  google----hj:
     addr: google.com
     
 common_port: 80
