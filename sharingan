@@ -2,21 +2,53 @@
 
 from services.monitor_services import Monitor_Service
 import argparse
+import sys
 
 def main():
-    parser = argparse.ArgumentParser(description="Monitoramento de hosts")
-    parser.add_argument('--active', action='store_true', help='obter hosts ativos')
-    parser.add_argument('--inactive', action='store_true', help='obter hosts inativos')
-    parser.add_argument('hosts_file', type=str, help='caminho para o arquivo de hosts (YAML)')
+	parser = argparse.ArgumentParser(description="Monitoramento de hosts")
+	parser.add_argument('--monitor', '-m',action='store_true', help='monitorar serviços na rede')
+	parser.add_argument('--active', '-a',action='store_true', help='obter hosts ativos')
+	parser.add_argument('--inactive','-i', action='store_true', help='obter hosts inativos')
+	parser.add_argument('--inventory','-f', type=str ,help='caminho para o arquivo de hosts (YAML)')
+	parser.add_argument('--htmlparser','-p', action='store_true',help='html parser ')
 
-    args = parser.parse_args()
+	args = parser.parse_args()
 
-    monitor = Monitor_Service(args.hosts_file)  # Passa o arquivo de hosts para o construtor
+
+	
+
+	if (args.active or args.inactive) and not args.monitor:
+		print("'--monitor or -m' it's necessary")
+		sys.exit(1)
+
+	if (args.active or args.inactive) and not args.inventory:
+		print("It's necessary to inventory file")
+		sys.exit(1)
+
+	if args.active and args.inactive:
+		print('não usar os dois juntos')
+		sys.exit(1)
+
+	function_map = {
+
+		'active': lambda: Monitor_Service(args.inventory).get_active(),
+		'inactive': lambda: Monitor_Service(args.inventory).get_inactive(),
+		'htmlparser': lambda: print('Em breve htmlparser')
+	}
+
+	if args.active:
+
+		function_map['active']()
+
+	elif args.inactive:
     
-    if args.inactive:
-        monitor.get_inactive()
-    else:
-        monitor.get_active()  # Chama get_active por padrão se --inactive não for passado
+		function_map['inactive']()
+
+	elif args.htmlparser:
+		function_map['htmlparser']()
+        
+	else:
+		parser.print_help()
 
 if __name__ == '__main__':
     main()

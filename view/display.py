@@ -19,7 +19,6 @@ class MonitDisplay:
 
 
     def display_active(self):
-        
         largura_divisor = 40
         
         print(self.create_divider("Sharingan - Hosts Ativos"))
@@ -31,13 +30,13 @@ class MonitDisplay:
             for porta in portas:
                 porta_formatada = f"[\033[32m{porta}\033[0m]"
                 print(f"{host_formatado}{divisor}{porta_formatada}")
+
         print(f"Total de Hosts:{len(self.total_hosts)} ")    
         print(f"Total de Hosts Ativos:{len(self.active_host)} ")    
 
 
     # Função que exibe os hosts inativos
     def display_inactive(self):
-        
         largura_divisor = 40
 
         print(self.create_divider("Sharingan - Hosts Inativos"))
@@ -49,6 +48,7 @@ class MonitDisplay:
             for porta in portas:
                 porta_formatada = f"[\033[31m{porta}\033[0m]"
                 print(f"{host_formatado}{divisor}{porta_formatada}")
+                
         print(f"\nTotal de Hosts:{len(self.total_hosts)}")
         print(f"Total de Hosts Inativos:{len(self.inactive_host)}")
 

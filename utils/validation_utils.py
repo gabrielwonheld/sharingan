@@ -11,8 +11,10 @@ class Validation():
 
     def validationArgs():
         
-        qtdArgs = int(len(sys.argv))
+        pass
+        '''qtdArgs = int(len(sys.argv))
 
-        if qtdArgs < 2 or qtdArgs >= 4:
+        if qtdArgs < 2 or qtdArgs > 4:
             Banner.modoUso()
-            sys.exit(1)
+            sys.exit(1)'''
+       
