@@ -1,16 +1,22 @@
 #!/usr/bin/python
 
+from services.htmlpaser_service import Parser_service
 from services.monitor_services import Monitor_Service
+from utils.file_utils import FileOutPut
+import services
 import argparse
 import sys
 
 def main():
 	parser = argparse.ArgumentParser(description="Monitoramento de hosts")
-	parser.add_argument('--monitor', '-m',action='store_true', help='monitorar serviços na rede')
-	parser.add_argument('--active', '-a',action='store_true', help='obter hosts ativos')
-	parser.add_argument('--inactive','-i', action='store_true', help='obter hosts inativos')
-	parser.add_argument('--inventory','-f', type=str ,help='caminho para o arquivo de hosts (YAML)')
-	parser.add_argument('--htmlparser','-p', action='store_true',help='html parser ')
+	parser.add_argument('--monitor', '-m',action='store_true', help='service monitoring')
+	parser.add_argument('--active', '-a',action='store_true', help='get active hosts')
+	parser.add_argument('--inactive','-i', action='store_true', help='get inactive hosts')
+	parser.add_argument('--inventory','-f', type=str ,help='Path to hosts file (YAML)')
+	parser.add_argument('--spider','-p', action='store_true',help='crawl in sites')
+	parser.add_argument('--url','-u', type=str,help='Website URL')
+	parser.add_argument('--domain','-d', type=str,help='Website domain')
+	parser.add_argument('--output','-o', type=str,help='Path to file')
 
 	args = parser.parse_args()
 
@@ -22,7 +28,11 @@ def main():
 		sys.exit(1)
 
 	if (args.active or args.inactive) and not args.inventory:
-		print("It's necessary to inventory file")
+		print("Erro: It's necessary supply to inventory file with '--inventory' or '-f'")
+		sys.exit(1)
+
+	if args.spider and not (args.domain and args.url):
+		print("Erro: To use --htmlparser, supply --url (or -u) and --domain (or -d)")
 		sys.exit(1)
 
 	if args.active and args.inactive:
@@ -33,7 +43,7 @@ def main():
 
 		'active': lambda: Monitor_Service(args.inventory).get_active(),
 		'inactive': lambda: Monitor_Service(args.inventory).get_inactive(),
-		'htmlparser': lambda: print('Em breve htmlparser')
+		'spider': lambda: Parser_service(args.url,args.domain).get_parser()
 	}
 
 	if args.active:
@@ -43,13 +53,22 @@ def main():
 	elif args.inactive:
     
 		function_map['inactive']()
+		
 
-	elif args.htmlparser:
-		function_map['htmlparser']()
+	elif args.spider:
+		
+		parser_instance  = Parser_service(args.url,args.domain)
+		parser_instance.get_parser()
+		
+		if args.output:
+			FileOutPut.output_file(args.output,parser_instance.emails_found, parser_instance.visited_links)
+		
         
 	else:
 		parser.print_help()
 
 if __name__ == '__main__':
     main()
+
+
 

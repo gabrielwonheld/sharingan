@@ -1,6 +1,6 @@
 from utils.validation_utils import Validation
 from core.monitor_core import Monit
-from services.host_processor_service import Host
+from utils.host_processor_utils import Host
 import sys
 from time import sleep
 

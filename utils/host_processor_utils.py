@@ -1,4 +1,5 @@
-import yaml, sys
+import yaml
+from utils import file_utils
 
 class Host():
 
@@ -6,7 +7,7 @@ class Host():
     @staticmethod
     def read_yaml_host(hosts_file):
         
-        if hosts_file.endswith(('.yaml','.yml')):
+        if file_utils.Yaml.verif_yaml(hosts_file):
             
             try:
                 with open(hosts_file, 'r') as arquivo:

@@ -65,3 +65,18 @@ class MonitDisplay:
                 print(f"{host_formatado}{divisor}{porta_formatada}")
 
 
+class Parserdisplay():
+    
+    def __init__(self, emails, links):
+        
+        self.emails = emails
+        self.links = links
+
+
+    def display_parser(self):
+
+        print("\nEmails encontrados:")
+        print('\n'.join(self.emails))
+        
+        print("\nLinks visitados:")
+        print('\n'.join(self.links))

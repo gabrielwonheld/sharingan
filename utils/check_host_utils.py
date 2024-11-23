@@ -10,7 +10,7 @@ def check_host(nome, addr, port):
             return nome,addr, port, result == 0
 
         except:
-            #print(f'Erro ao conectar a {ip}:{port}: {e}')
+            
             return nome,addr, port, False
 
         finally:
