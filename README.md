@@ -9,7 +9,8 @@ Sharingan é uma ferramenta de monitoramento de rede desenvolvida em Python, cap
 - [Funcionalidades futuras](#funcionalidades-futuras)
 - [Instalação](#instalação)
 - [Como Usar](#como-usar)
-- [Monitorar Serviços](#monitorar-serviços)
+  - [Monitorar Serviços](#monitorar-serviços)
+  - [Spider (htmlparser)](#função-spider)
 - [Contribuição](#contribuição)
 - [Licença](#licença)
 
@@ -19,9 +20,9 @@ O Sharingan foi desenvolvido inicialmente para monitorar câmeras IP em um ambie
 
 ## Funcionalidades
 - **Monitoramento de Serviços** : Verifica a disponibilidade de serviços em hosts na rede através de uma conexão TCP.
+- **HTML Parser**: Analisa o conteúdo de páginas web e extrai dados importantes.
 
 ### Funcionalidades Futuras
-- **HTML Parser**: Analisa o conteúdo de páginas web e extrai dados importantes.
 - **Fuzzing de Arquivos e Diretórios**: Realiza fuzzing para descobrir diretórios ou arquivos ocultos.
 - **Scanning de Portas**: Verifica as portas abertas de um host para identificar serviços ativos.
 - **Monitoramento de Recursos**: Função planejada para monitorar consumo de CPU, memória e mais.
@@ -101,7 +102,7 @@ hosts:
   intranet:
     addr: 10.37.0.3
     ports:
-      - 80a
+      - 80
       - 443
   gateway:
     addr: 192.168.1.1
@@ -115,7 +116,54 @@ hosts:
       - 80
 
 ```
+### Função spider
 
+Essa função tem como objetivo realizar um htmlparser em um determinado alvo. Com ela, o usuário irá obter, pelo menos por enquanto, links de redirecionamentos na página específicada,
+e-mails de usuários, e futuramente mais algumas funcionalidades.
+
+**Função Spider**
+
+```
+python.exe .\sharingan --spider -u http://exemplo.com -d exemplo -o saida.txt
+
+```
+**Onde:**
+
+- `--spider` ou `-p`: Chama a função spider;
+- `--url` ou `-u`: Informa a url do alvo;
+- `--domain` ou`-d`: Informa o domínio ou escopo no qual será realizado  Parser será realizado;
+- `--output` ou `-o`: Informa o caminho e o nome do arquivo onde será armazenado o resultado. (opcional).
+
+**Saída**
+```
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠟⠛⠛⠛⠛⠛
+⣶⣦⣤⣤⣤⣤⣤⣤⣬⣭⣭⣍⣉⡙⠛⠻⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠛⣋⣩⣭⣥⣤⣴⣶⣶⣶⣶⣶⣶⣶⣶⣶
+⣆⠀⠀⠀⢡⠁⠀⡀⠀⢸⠟⠻⣯⠙⠛⠷⣶⣬⡙⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⢉⣥⣶⡟⠻⣙⡉⠀⢰⡆⠀⠀⣡⠀⣧⠀⠀⠀⢨
+⠻⣦⠀⠀⠈⣇⣀⣧⣴⣿⣶⣶⣿⣷⠀⢀⡇⠉⠻⢶⣌⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣡⡶⠟⠉⠀⢣⠀⣿⠷⠀⠀⠀⠀⣿⡷⢀⠇⠀⠀⢠⣿
+⣦⡈⢧⡀⠀⠘⢮⡙⠛⠉⠀⠄⠙⢿⣀⠞⠀⠀⠀⠀⠙⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠋⠀⠀⠀⠀⠈⠳⣄⠉⠓⠒⠚⠋⢀⡠⠋⠀⢀⣴⣏⣿
+⣿⣿⣿⣛⣦⣀⠀⠙⠓⠦⠤⣤⠔⠛⠁⠀⠀⠀⠀⠀⢀⣀⣹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣤⣤⣤⣤⣤⣀⣀⣀⣀⢙⢓⣒⡒⠚⠋⢠⣤⢶⣟⣽⣿⣿
+⣿⣿⣿⣿⣿⣿⣷⣦⠀⠀⣴⣿⣷⣶⣶⣶⣾⡖⢰⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣶⣾⣿⣿⣶⣾⣿⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+
+Acessando: http://exemplo.com#contact
+Emails encontrados:
+roger@exemplo.com
+ti@exemplo.com
+lucia@exemplo.com
+
+Links visitados:
+http://exemplo.com#home
+http://exemplo.com#nav-wrap
+http://exemplo.com#intro
+http://intranet.exemplo.com
+http://rh.exemplo.com
+http://exemplo.com/index.php
+http://mail.exemplo.com
+http://exemplo.com#services
+
+
+```
 
 ### Para mais opções, use o comando de ajuda:
 
@@ -128,12 +176,13 @@ Sinta-se à vontade para contribuir com o Sharingan. As sugestões e melhorias s
 
 ### Checklist
 
-- [x] Monitoramento de serviços em porta TCP
+- [x] ~~Monitoramento de serviços em porta TCP~~
 - [ ] Refatoração/Reorganização (aberto a ideias)
-- [x] Parser HTML
+- [x] ~~Parser HTML~~
+- [x] ~~Função --output~~
 - [ ] scanning de portas
 - [ ] Versão do README.md em inglês
-- [ ] Monitoramento de Recursos
+- [ ] Monitoramento de Recursos (Talvez)
 
 ### Como fazer
 1. Faça um fork do projeto.
