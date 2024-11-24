@@ -1,22 +1,19 @@
-
 import sys
 
 
 class Yaml:
-
     @staticmethod
     def verif_yaml(file):
-        
-        if file.endswith(('.yaml','.yml')):
+
+        if file.endswith(('.yaml', '.yml')):
             return file
-        else: 
+        else:
             print('Arquivo não tem formato .yaml')
 
-class FileOutPut():
 
-    
-    def output_file(file,*lista):
-        
+class FileOutPut:
+    def output_file(file, *lista):
+
         try:
             with open(file, 'w') as f:
                 # Converte cada item de lista para string e escreve no arquivo
@@ -27,9 +24,5 @@ class FileOutPut():
                         f.write(str(item) + '\n')
             return True
         except Exception as e:
-                print(f"Erro ao salvar no arquivo {file}: {e}")
-                return False
-        
-    
-
-
+            print(f'Erro ao salvar no arquivo {file}: {e}')
+            return False

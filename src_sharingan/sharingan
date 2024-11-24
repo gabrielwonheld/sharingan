@@ -1,24 +1,17 @@
 #!/usr/bin/python
 
-from services.htmlpaser_service import Parser_service
-from services.monitor_services import Monitor_Service
-from utils.file_utils import FileOutPut
-import services
-import argparse
 import sys
 
-def main():
-	parser = argparse.ArgumentParser(description="Monitoramento de hosts")
-	parser.add_argument('--monitor', '-m',action='store_true', help='service monitoring')
-	parser.add_argument('--active', '-a',action='store_true', help='get active hosts')
-	parser.add_argument('--inactive','-i', action='store_true', help='get inactive hosts')
-	parser.add_argument('--inventory','-f', type=str ,help='Path to hosts file (YAML)')
-	parser.add_argument('--spider','-p', action='store_true',help='crawl in sites')
-	parser.add_argument('--url','-u', type=str,help='Website URL')
-	parser.add_argument('--domain','-d', type=str,help='Website domain')
-	parser.add_argument('--output','-o', type=str,help='Path to file')
+from core.cli import Cli
+from services.monitor_services import Monitor_Service
+from services.spider_service import Spider_service
+from utils.file_utils import FileOutPut
 
-	args = parser.parse_args()
+
+def main():
+	
+
+	args = Cli.parse_args()
 
 
 	
@@ -43,7 +36,7 @@ def main():
 
 		'active': lambda: Monitor_Service(args.inventory).get_active(),
 		'inactive': lambda: Monitor_Service(args.inventory).get_inactive(),
-		'spider': lambda: Parser_service(args.url,args.domain).get_parser()
+		'spider': lambda: Spider_service(args.url,args.domain).get_parser()
 	}
 
 	if args.active:
@@ -57,7 +50,7 @@ def main():
 
 	elif args.spider:
 		
-		parser_instance  = Parser_service(args.url,args.domain)
+		parser_instance  = Spider_service(args.url,args.domain)
 		parser_instance.get_parser()
 		
 		if args.output:
@@ -65,8 +58,8 @@ def main():
 		
         
 	else:
-		parser.print_help()
-
+		#args.print_help()
+		pass
 if __name__ == '__main__':
     main()
 

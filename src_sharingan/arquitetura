@@ -1,0 +1,20 @@
+project/
+├── core/
+│   ├── engine.py          # Motor principal (lógica do monitoramento, por exemplo, classe `Monit`)
+│   ├── config.py          # Configurações do sistema (argparse)
+│   ├── __init__.py
+├── services/
+│   ├── htmlparser_service.py  # Serviços relacionados ao parser HTML
+│   ├── monitor_service.py     # Serviços para monitorar hosts
+│   ├── __init__.py
+├── utils/
+│   ├── check_host_utils.py    # Funções auxiliares para checar hosts
+│   ├── file_utils.py          # Utilidades para manipulação de arquivos
+│   ├── clear_utils.py         # Limpeza de listas ou terminal
+│   ├── __init__.py
+├── view/
+│   ├── banner.py          # Exibição de banners
+│   ├── display.py         # Classe ou funções para exibir resultados
+│   ├── __init__.py
+├── main.py                # Arquivo principal com o ponto de entrada da aplicação
+└── requirements.txt       # Dependências do projeto

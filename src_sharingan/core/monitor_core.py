@@ -1,10 +1,13 @@
-from utils.check_host_utils import check_host
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from view.display import MonitDisplay
-from utils.clear_utils import Clean
 import threading
-from view.banner import Banner
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from core.cli import Cli
+from utils.check_host_utils import check_host
+from utils.clear_utils import Clean
+from view.banner import Banner
+from view.display import MonitDisplay
+
+args = Cli.parse_args()
 lock = threading.Lock()
 
 class Monit:
@@ -32,7 +35,7 @@ class Monit:
    
     def all_run_threads(self,func):
         results = []
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=args.tasks) as executor:
         
             futures = {
                 executor.submit(func, host, details['addr'], port):(host,port)

@@ -1,9 +1,7 @@
 import os
 
 
-class Clean():
-    
-
+class Clean:
     @staticmethod
     def clear_terminal():
 
