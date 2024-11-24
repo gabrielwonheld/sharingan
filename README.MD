@@ -1,4 +1,4 @@
-![Logo do Sharingan](images/Mangekyou_Sharingan_Kakashi.svg.png)
+![Logo do Sharingan](src_sharingan/images/Mangekyou_Sharingan_Kakashi.svg.png)
 # Sharingan
 Sharingan é uma ferramenta de monitoramento de rede desenvolvida em Python, capaz de verificar a conectividade de serviços via TCP, e que está em evolução para suportar novas funcionalidades como parsing de HTML, fuzzing e escaneamento de portas.
 
