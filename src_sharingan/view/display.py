@@ -57,21 +57,37 @@ class MonitDisplay:
             print(f'Total de Hosts Ativos:{total_hosts_ativos} ')
 
     # Função que exibe os hosts inativos
-    def display_inactive(self):
+    def display_inactive(self,hosts):
         largura_divisor = 40
+        total_hosts = 0
+        total_hosts_inativos = 0
 
-        print(self.create_divider('Sharingan - Hosts Inativos'))
+        port_list = [
+            porta for porta in hosts.values() for porta in porta.ports_inactive
+        ]
 
-        for host, portas in self.inactive_host.items():
-            host_formatado = f'{host:<7}'
-            divisor = (largura_divisor - len(host_formatado)) * '-'
+        if self.compara_porta(sorted(port_list)):
 
-            for porta in portas:
-                porta_formatada = f'[\033[31m{porta}\033[0m]'
-                print(f'{host_formatado}{divisor}{porta_formatada}')
+            Clean.clear_terminal()
 
-        print(f'\nTotal de Hosts:{len(self.total_hosts)}')
-        print(f'Total de Hosts Inativos:{len(self.inactive_host)}')
+            print(self.create_divider('Sharingan - Hosts Inativos'))
+
+            for host in hosts.values():
+                total_hosts += 1
+                if len(host.ports_inactive) < 1:
+                    continue
+                host_formatado = f'{host.nome:<7}'
+                divisor = '-' * (largura_divisor - len(host_formatado))
+
+                for porta in host.ports_inactive:
+                    total_hosts_inativos += 1
+                    porta_formatada = f'[\033[31m{porta}\033[0m]'
+                    print(f'{host_formatado}{divisor}{porta_formatada}')
+
+            print(f'Total de Hosts:{len(port_list)} ')
+            print(f'Total de Hosts Ativos:{total_hosts_inativos} ')
+
+
 
     def display_total(self):
         print(self.create_divider('Hosts Ativos com Portas'))

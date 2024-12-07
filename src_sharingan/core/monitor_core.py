@@ -53,38 +53,11 @@ class Monit:
             else:
                 self.hosts[nome].add_port_inactive(port)
 
-    def get_active(self):
+    def get_hosts(self):
 
         self.hosts.clear()
         self.separate_results()
         return self.hosts
 
-    def get_inactive(self):
 
-        with lock:
-
-            self.dic_inactive_port_host.clear()
-            self.dic_inactive_addr_host.clear()
-            Clean.clear_list(
-                self.list_active_host,
-                self.list_inactive_host,
-                self.list_total_host,
-            )
-
-            self.separate_results()
-
-            if self.dic_previous_inactive_host != self.dic_inactive_port_host:
-
-                Clean.clear_terminal()
-                Banner.sharingan()
-
-                display_host = MonitDisplay(
-                    inactive=self.dic_inactive_port_host,
-                    total=self.list_total_host,
-                )
-                display_host.display_inactive()
-                self.dic_previous_inactive_host = (
-                    self.dic_inactive_port_host.copy()
-                )
-
-        return self.dic_previous_inactive_host
+        

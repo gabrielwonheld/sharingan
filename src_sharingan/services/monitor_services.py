@@ -19,7 +19,7 @@ class Monitor_Service:
     def get_active(self):
         try:
             while True:
-                hosts = self.monit.get_active()
+                hosts = self.monit.get_hosts()
 
                 self.display.display_active(hosts)
                 sleep(5)
@@ -30,7 +30,10 @@ class Monitor_Service:
     def get_inactive(self):
         try:
             while True:
-                self.monit.get_inactive()
+                hosts = self.monit.get_hosts()
+
+                self.display.display_inactive(hosts)
+
                 sleep(5)
         except KeyboardInterrupt:
             print('\nRecebido sinal de interrupção (Ctrl+C). Saindo...')
