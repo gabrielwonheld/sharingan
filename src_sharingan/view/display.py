@@ -1,8 +1,12 @@
+from utils.clear_utils import Clean
+
+
 class MonitDisplay:
     def __init__(self, inactive=None, active=None, total=None):
         self.inactive_host = inactive if inactive is not None else {}
         self.active_host = active if active is not None else {}
         self.total_hosts = total if total is not None else {}
+        self.compara_lista_porta = []
 
     # Função que cria um divisor
     def create_divider(self, title=''):
@@ -15,21 +19,42 @@ class MonitDisplay:
             return f'{divider[:mid - len(title)//2]}{title}{divider[mid + len(title)//2:]}'
         return divider
 
-    def display_active(self):
+    def compara_porta(self, lista_portas):
+
+        if lista_portas != self.compara_lista_porta:
+            self.compara_lista_porta = lista_portas.copy()
+            print(self.compara_lista_porta)
+            return True
+
+    def display_active(self, hosts):
         largura_divisor = 40
+        total_hosts = 0
+        total_hosts_ativos = 0
 
-        print(self.create_divider('Sharingan - Hosts Ativos'))
+        port_list = [
+            porta for porta in hosts.values() for porta in porta.ports_active
+        ]
 
-        for host, portas in self.active_host.items():
-            host_formatado = f'{host:<7}'
-            divisor = '-' * (largura_divisor - len(host_formatado))
+        if self.compara_porta(sorted(port_list)):
 
-            for porta in portas:
-                porta_formatada = f'[\033[32m{porta}\033[0m]'
-                print(f'{host_formatado}{divisor}{porta_formatada}')
+            Clean.clear_terminal()
 
-        print(f'Total de Hosts:{len(self.total_hosts)} ')
-        print(f'Total de Hosts Ativos:{len(self.active_host)} ')
+            print(self.create_divider('Sharingan - Hosts Ativos'))
+
+            for host in hosts.values():
+                total_hosts += 1
+                if len(host.ports_active) < 1:
+                    continue
+                host_formatado = f'{host.nome:<7}'
+                divisor = '-' * (largura_divisor - len(host_formatado))
+
+                for porta in host.ports_active:
+                    total_hosts_ativos += 1
+                    porta_formatada = f'[\033[32m{porta}\033[0m]'
+                    print(f'{host_formatado}{divisor}{porta_formatada}')
+
+            print(f'Total de Hosts:{len(port_list)} ')
+            print(f'Total de Hosts Ativos:{total_hosts_ativos} ')
 
     # Função que exibe os hosts inativos
     def display_inactive(self):
