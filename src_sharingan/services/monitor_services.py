@@ -2,15 +2,16 @@ import sys
 from time import sleep
 
 from core.monitor_core import Monit
-from utils.host_processor_utils import HostProcessor
+from utils.host_processor_utils import Host
 from utils.validation_utils import Validation
 from view.display import MonitDisplay
 
 
 class Monitor_Service:
+    
     def __init__(self, hosts_file):
         Validation.validationArgs()
-        self.HOSTS = HostProcessor.read_yaml_host(
+        self.HOSTS = Host.read_yaml_host(
             hosts_file
         )  # Passa o arquivo de hosts
         self.monit = Monit(self.HOSTS)
