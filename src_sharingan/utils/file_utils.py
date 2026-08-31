@@ -8,7 +8,7 @@ class Yaml:
         if file.endswith(('.yaml', '.yml')):
             return file
         else:
-            print('Arquivo não tem formato .yaml')
+            print('File is not in .yaml format')
 
 
 class FileOutPut:
@@ -16,7 +16,7 @@ class FileOutPut:
 
         try:
             with open(file, 'w') as f:
-                # Converte cada item de lista para string e escreve no arquivo
+                # Converts each list item to a string and writes it to the file
                 for item in lista:
                     if isinstance(item, (list, tuple, set)):
                         f.write('\n'.join(map(str, item)) + '\n')
@@ -24,5 +24,5 @@ class FileOutPut:
                         f.write(str(item) + '\n')
             return True
         except Exception as e:
-            print(f'Erro ao salvar no arquivo {file}: {e}')
+            print(f'Error saving to file {file}: {e}')
             return False

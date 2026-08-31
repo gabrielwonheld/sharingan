@@ -8,12 +8,12 @@ class MonitDisplay:
         self.total_hosts = total if total is not None else {}
         self.compara_lista_porta = []
 
-    # Função que cria um divisor
+    # Function that creates a divider
     def create_divider(self, title=''):
-        width = 60  # Largura padrão do divisor
+        width = 60  # Default divider width
         divider = '-' * width
         if title:
-            # Centraliza o título no divisor
+            # Centers the title in the divider
             title = f' {title} '
             mid = width // 2
             return f'{divider[:mid - len(title)//2]}{title}{divider[mid + len(title)//2:]}'
@@ -39,7 +39,7 @@ class MonitDisplay:
 
             Clean.clear_terminal()
 
-            print(self.create_divider('Sharingan - Hosts Ativos'))
+            print(self.create_divider('Sharingan - Active Hosts'))
 
             for host in hosts.values():
                 total_hosts += 1
@@ -53,10 +53,10 @@ class MonitDisplay:
                     porta_formatada = f'[\033[32m{porta}\033[0m]'
                     print(f'{host_formatado}{divisor}{porta_formatada}')
 
-            print(f'Total de Hosts:{len(port_list)} ')
-            print(f'Total de Hosts Ativos:{total_hosts_ativos} ')
+            print(f'Total Hosts:{len(port_list)} ')
+            print(f'Total Active Hosts:{total_hosts_ativos} ')
 
-    # Função que exibe os hosts inativos
+    # Function that displays inactive hosts
     def display_inactive(self,hosts):
         largura_divisor = 40
         total_hosts = 0
@@ -70,7 +70,7 @@ class MonitDisplay:
 
             Clean.clear_terminal()
 
-            print(self.create_divider('Sharingan - Hosts Inativos'))
+            print(self.create_divider('Sharingan - Inactive Hosts'))
 
             for host in hosts.values():
                 total_hosts += 1
@@ -84,13 +84,13 @@ class MonitDisplay:
                     porta_formatada = f'[\033[31m{porta}\033[0m]'
                     print(f'{host_formatado}{divisor}{porta_formatada}')
 
-            print(f'Total de Hosts:{len(port_list)} ')
-            print(f'Total de Hosts Ativos:{total_hosts_inativos} ')
+            print(f'Total Hosts:{len(port_list)} ')
+            print(f'Total Active Hosts:{total_hosts_inativos} ')
 
 
 
     def display_total(self):
-        print(self.create_divider('Hosts Ativos com Portas'))
+        print(self.create_divider('Active Hosts with Ports'))
 
         for host, portas in self.active_host.items():
             host_formatado = f'{host:<20}'
@@ -109,8 +109,8 @@ class Parserdisplay:
 
     def display_parser(self):
 
-        print('\nEmails encontrados:')
+        print('\nEmails found:')
         print('\n'.join(self.emails))
 
-        print('\nLinks visitados:')
+        print('\nLinks visited:')
         print('\n'.join(self.links))

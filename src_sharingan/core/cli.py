@@ -5,7 +5,7 @@ class Cli:
     @staticmethod
     def parse_args():
 
-        parser = argparse.ArgumentParser(description='Monitoramento de hosts')
+        parser = argparse.ArgumentParser(description='Host monitoring')
         parser.add_argument(
             '--monitor', '-m', action='store_true', help='service monitoring'
         )

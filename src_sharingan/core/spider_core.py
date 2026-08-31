@@ -12,9 +12,9 @@ class Spider:
         self.url = url
         self.href_list = []
         self.email_list = []
-        self.visited_links = set()  # Armazena URLs já visitados
-        self.emails_found = set()   # Armazena emails únicos encontrados
-        # Compila o padrão de domínio para corresponder ao domínio principal
+        self.visited_links = set()  # Stores already-visited URLs
+        self.emails_found = set()   # Stores unique emails found
+        # Compiles the domain pattern to match the main domain
         self.domain = re.compile(rf'(.*{domain}.*)')
 
     def fetch_page(self, url):
@@ -22,7 +22,7 @@ class Spider:
             response = requests.get(url, timeout=10)
             return response.text
         except requests.RequestException as e:
-            # print(f"Erro ao acessar {url}: {e}")
+            # print(f"Error accessing {url}: {e}")
             return None
 
     def link_extractor(self, html):
@@ -45,7 +45,7 @@ class Spider:
         if url in self.visited_links:
             return
 
-        print(f'\rAcessando: {url}', end='\r')
+        print(f'\rVisiting: {url}', end='\r')
         self.visited_links.add(url)
         page_content = self.fetch_page(url)
 

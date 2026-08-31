@@ -13,7 +13,7 @@ class Monitor_Service:
         Validation.validationArgs()
         self.HOSTS = Host.read_yaml_host(
             hosts_file
-        )  # Passa o arquivo de hosts
+        )  # Passes the hosts file
         self.monit = Monit(self.HOSTS)
         self.display = MonitDisplay()
 
@@ -25,7 +25,7 @@ class Monitor_Service:
                 self.display.display_active(hosts)
                 sleep(5)
         except KeyboardInterrupt:
-            print('\nRecebido sinal de interrupção (Ctrl+C). Saindo...')
+            print('\nReceived interrupt signal (Ctrl+C). Exiting...')
             sys.exit(1)
 
     def get_inactive(self):
@@ -37,5 +37,5 @@ class Monitor_Service:
 
                 sleep(5)
         except KeyboardInterrupt:
-            print('\nRecebido sinal de interrupção (Ctrl+C). Saindo...')
+            print('\nReceived interrupt signal (Ctrl+C). Exiting...')
             sys.exit(1)

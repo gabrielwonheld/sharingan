@@ -55,22 +55,22 @@ class Banner:
 
         print(
             """
-        
+
         ___________________________________
 
-        Exemplo de uso
-        ___________________________________
-        
-        $:sharingan lista.yaml <porta TCP>
+        Usage example
         ___________________________________
 
-           Exemplo de lista.yaml
-            
+        $:sharingan list.yaml <TCP port>
+        ___________________________________
+
+           Example list.yaml
+
             hosts:
                 SERV01: 10.37.0.2
                 SERV02: 10.37.0.3
                 SERV03: 10.37.0.1
                 SERV04: 192.168.0.1
-        
+
          """
         )
