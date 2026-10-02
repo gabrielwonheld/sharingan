@@ -132,6 +132,7 @@ re-run highlights what just appeared.
 
 ```text
 Sharingan > recon myserver example.com
+[*] Discovering subdomains (subfinder -d example.com)...
 ```
 
 ## `hosts [-d <name|addr|all>]`

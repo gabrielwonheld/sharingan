@@ -63,7 +63,7 @@ def test_command_scan_runs_scan_phase_and_displays_results(mocker):
     console.command_scan(['alvo', '192.0.2.10'])
 
     mock_phase_cls.return_value.run.assert_called_once_with(
-        name='alvo', target='192.0.2.10', on_progress=console._report_scan_progress
+        name='alvo', target='192.0.2.10', on_progress=console._report_progress
     )
     assert console.console.print.called
 
@@ -1256,3 +1256,25 @@ def test_command_recon_rolls_back_the_session_when_it_fails(mocker):
     console.command_recon(['alvo', 'example.com'])
 
     session.rollback.assert_called_once()
+
+
+def test_command_recon_passes_the_subfinder_command_as_progress_callback(mocker):
+    session = make_session()
+    console = make_console(session)
+    console.context = SessionContext()
+    host = Host(nome='alvo', addr='example.com')
+    session.add(host)
+    session.commit()
+
+    mock_phase_cls = mocker.patch('view.console.ReconPhase')
+    fake_phase = mock_phase_cls.return_value
+    fake_phase.subfinder = _AlwaysAvailable
+    fake_phase.run.return_value = host
+    fake_phase.last_new_subdomains = []
+    fake_phase.last_all_subdomains = []
+
+    console.command_recon(['alvo', 'example.com'])
+
+    mock_phase_cls.return_value.run.assert_called_once_with(
+        name='alvo', domain='example.com', on_progress=console._report_progress
+    )

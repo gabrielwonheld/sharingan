@@ -323,7 +323,7 @@ class InteractiveConsole:
             return
 
         try:
-            host = recon_phase.run(name=name, domain=domain)
+            host = recon_phase.run(name=name, domain=domain, on_progress=self._report_progress)
         except RuntimeError as e:
             self.session_db.rollback()
             self.console.print(f"[red]{e}[/red]")
@@ -604,10 +604,10 @@ class InteractiveConsole:
         )
         return True
 
-    def _report_scan_progress(self, step: str) -> None:
-        """Callback passed to `ScanPhase.run` — prints each step (rustscan /
-        nmap / searchsploit) as it actually starts, instead of a single static
-        message sitting there until the whole scan finishes."""
+    def _report_progress(self, step: str) -> None:
+        """Callback passed to `ScanPhase.run`/`ReconPhase.run` — prints each
+        step (and the actual command behind it) as it starts, instead of a
+        single static message sitting there until the whole phase finishes."""
         self.console.print(f"[*] {step}")
 
     def _print_exploit_table(self, service: Service) -> None:
@@ -679,7 +679,7 @@ class InteractiveConsole:
         self.console.print(f"[*] Starting scan of [bold cyan]{target}[/bold cyan]...")
 
         try:
-            host_record = scan_phase.run(name=name, target=target, on_progress=self._report_scan_progress)
+            host_record = scan_phase.run(name=name, target=target, on_progress=self._report_progress)
         except RuntimeError as e:
             # External tool missing from PATH (rustscan/nmap/searchsploit) — not a
             # bug, an environment prerequisite.

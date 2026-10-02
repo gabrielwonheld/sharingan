@@ -26,7 +26,12 @@ class ReconPhase(PhaseModule):
         self.last_new_subdomains: list[str] = []
         self.last_all_subdomains: list[str] = []
 
-    def run(self, name: str, domain: str) -> Host:
+    def run(self, name: str, domain: str, on_progress=None) -> Host:
+        """`on_progress`, if given, is called with a string naming the actual
+        command about to run — mirrors `ScanPhase.run`'s callback."""
+        if on_progress:
+            on_progress(f'Discovering subdomains (subfinder -d {domain})...')
+
         host = get_or_create_host(self.session, name, domain)
         found = self.subfinder.find_subdomains(domain)
 

@@ -63,3 +63,22 @@ def test_recon_phase_rerun_does_not_duplicate_known_subdomains_but_tracks_whats_
     assert len(all_subdomains) == 3  # not duplicated
     assert phase2.last_new_subdomains == ['beta.example.com']
     assert phase2.last_all_subdomains == ['api.example.com', 'beta.example.com', 'www.example.com']
+
+
+def test_recon_phase_reports_progress_with_the_subfinder_command():
+    """Mirrors ScanPhase's on_progress: shows the actual command being run
+    (subfinder -d <domain>), not just a generic "working..." message."""
+    session = make_session()
+    phase = ReconPhase(session, subfinder=FakeSubfinder)
+    progress = []
+
+    phase.run(name='alvo', domain='example.com', on_progress=progress.append)
+
+    assert progress == ['Discovering subdomains (subfinder -d example.com)...']
+
+
+def test_recon_phase_run_works_without_progress_callback():
+    session = make_session()
+    phase = ReconPhase(session, subfinder=FakeSubfinder)
+
+    phase.run(name='alvo', domain='example.com')  # must not raise
