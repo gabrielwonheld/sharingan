@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from core.context import SessionContext
 from db.extensions import Base
 from model.host import Host
 from model.service_model import ExploitMatch, Service, Vulnerability
@@ -16,6 +17,7 @@ def make_console(session):
     console = InteractiveConsole.__new__(InteractiveConsole)
     console.console = MagicMock()
     console.session_db = session
+    console.context = SessionContext()
     return console
 
 
@@ -980,3 +982,120 @@ def test_command_scan_diff_reports_when_nothing_changed():
 
     printed = [str(call.args[0]) for call in console.console.print.call_args_list if call.args]
     assert any('No changes' in text for text in printed)
+
+
+def _printed(console):
+    return [str(call.args[0]) for call in console.console.print.call_args_list if call.args]
+
+
+def test_find_host_accepts_the_scan_name_as_well_as_the_address():
+    session = make_session()
+    console = make_console(session)
+    host = Host(nome='16bits', addr='127.0.0.1')
+    session.add(host)
+    session.commit()
+
+    assert console._find_host_or_warn('127.0.0.1') is host
+    assert console._find_host_or_warn('16bits') is host
+
+
+def test_find_host_prefers_address_over_a_name_that_looks_like_it():
+    session = make_session()
+    console = make_console(session)
+    by_addr = Host(nome='alvo', addr='10.0.0.1')
+    by_name = Host(nome='10.0.0.1', addr='10.0.0.2')
+    session.add_all([by_addr, by_name])
+    session.commit()
+
+    assert console._find_host_or_warn('10.0.0.1') is by_addr
+
+
+def test_find_host_warns_when_a_name_matches_several_hosts():
+    session = make_session()
+    console = make_console(session)
+    session.add_all([Host(nome='16bits', addr='10.0.0.1'), Host(nome='16bits', addr='10.0.0.2')])
+    session.commit()
+
+    assert console._find_host_or_warn('16bits') is None
+    text = ' '.join(_printed(console))
+    assert 'ambiguous' in text and '10.0.0.1' in text and '10.0.0.2' in text
+
+
+def test_command_scan_diff_accepts_the_scan_name():
+    session = make_session()
+    console = make_console(session)
+    host, _ = _seed_runs_for_history(session)  # nome='alvo'
+
+    console.command_scan(['diff', 'alvo'])
+
+    assert _table_cell_values(console.console.print, 'Scan diff', 'Change') is not None
+
+
+def test_command_scan_diff_without_target_shows_usage():
+    session = make_session()
+    console = make_console(session)
+
+    console.command_scan(['diff'])
+
+    assert any('Usage: scan diff' in t for t in _printed(console))
+
+
+def _real_context_console():
+    from core.context import SessionContext
+
+    console = make_console(make_session())
+    console.context = SessionContext()
+    return console
+
+
+def test_command_set_changes_an_option_and_options_shows_it():
+    console = _real_context_console()
+
+    console.command_set(['rustscan_batch', '300'])
+    console.command_options([])
+
+    assert console.context.get('rustscan_batch') == 300
+    assert '300' in _table_cell_values(console.console.print, 'Options', 'Value')
+    assert 'rustscan_batch' in _table_cell_values(console.console.print, 'Options', 'Option')
+
+
+def test_command_set_accepts_a_value_with_spaces():
+    console = _real_context_console()
+
+    console.command_set(['user_agent', 'Mozilla/5.0', '(X11;', 'Linux)'])
+
+    assert console.context.get('user_agent') == 'Mozilla/5.0 (X11; Linux)'
+
+
+def test_command_set_reports_invalid_input_without_crashing():
+    console = _real_context_console()
+
+    console.command_set([])
+    console.command_set(['rustscan_batch'])
+    console.command_set(['rustscan_batch', 'abc'])
+    console.command_set(['nope', '1'])
+
+    assert console.context.get('rustscan_batch') == 4500
+    assert len([t for t in _printed(console) if 'red' in t]) == 4
+
+
+def test_command_unset_restores_default():
+    console = _real_context_console()
+    console.command_set(['rustscan_timeout', '9000'])
+
+    console.command_unset(['rustscan_timeout'])
+
+    assert console.context.get('rustscan_timeout') == 3000
+
+
+def test_handle_scan_builds_the_scan_phase_with_the_session_options(mocker):
+    console = _real_context_console()
+    console.command_set(['rustscan_batch', '200'])
+    console.command_set(['rustscan_timeout', '9000'])
+    mock_phase_cls = mocker.patch('view.console.ScanPhase')
+    mock_phase_cls.return_value.rustscan = _NeverAvailable
+    mocker.patch('view.console.Confirm.ask', return_value=False)
+
+    console.command_scan(['alvo', '192.0.2.10'])
+
+    mock_phase_cls.assert_called_once_with(console.session_db, rustscan_batch=200, rustscan_timeout=9000)

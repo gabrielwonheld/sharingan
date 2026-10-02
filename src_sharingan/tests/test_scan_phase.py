@@ -586,3 +586,20 @@ def test_scan_phase_allows_the_same_name_for_different_addresses():
 
     assert host1.id != host2.id
     assert session.query(Host).filter_by(nome='16bits').count() == 2
+
+
+def test_scan_phase_passes_rustscan_options_to_the_tool():
+    received = {}
+
+    class RecordingRustscan:
+        @classmethod
+        def scan_ports(cls, target, **kwargs):
+            received.update(kwargs)
+            return []
+
+    session = make_session()
+    phase = make_phase(session, rustscan=RecordingRustscan, rustscan_batch=200, rustscan_timeout=9000)
+
+    phase.run(name='alvo', target='192.0.2.150')
+
+    assert received == {'batch_size': 200, 'timeout_ms': 9000}

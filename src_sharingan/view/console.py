@@ -7,9 +7,9 @@ from rich.prompt import Confirm
 from rich.table import Table
 
 from db.database import init_db, get_session
+from core.context import SessionContext
 from phases.scan.scan_diff import diff_scan_runs
 from services.whois_service import WhoisService
-from services.set_env_service import SetEnvService
 from model.host import Host
 from model.service_model import ScanRun, Service, Vulnerability, current_services_filter
 from phases.scan.scan_phase import ScanPhase
@@ -44,7 +44,7 @@ class InteractiveConsole:
     def __init__(self):
         self.console = RichConsole()
         self.session_db = get_session()
-        self.env = {}
+        self.context = SessionContext()
         self.cmds = {
             'clear': self.command_clear,
             'options': self.command_options,
@@ -53,6 +53,7 @@ class InteractiveConsole:
             'help': self.command_help,
             'whois': self.command_whois,
             'set': self.command_set,
+            'unset': self.command_unset,
             'scan': self.command_scan,
             'scans': self.command_scans,
             'hosts': self.command_hosts,
@@ -64,7 +65,7 @@ class InteractiveConsole:
         init_db()
 
         self.completer = WordCompleter([
-            'whois', 'scan', 'scans', 'help', 'exit', 'quit', 'clear', 'set', 'options',
+            'whois', 'scan', 'scans', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'options',
             'hosts', 'services', 'vulns',
         ], ignore_case=True)
 
@@ -117,10 +118,29 @@ class InteractiveConsole:
         self.handle_whois(domain)
 
     def command_set(self, args):
-        key = args[0]
-        value = args[1]
+        if len(args) < 2:
+            self.console.print("[red]Usage: set <option> <value>  (see 'options')[/red]")
+            return
+        # Everything after the option name is the value, so a User-Agent with
+        # spaces works without quoting.
+        name, value = args[0], ' '.join(args[1:])
+        try:
+            self.context.set(name, value)
+        except ValueError as e:
+            self.console.print(f"[red]{e}[/red]")
+            return
+        self.console.print(f"[green]{name} => {self.context.get(name)}[/green]")
 
-        self.env = SetEnvService().set_env(key, value)
+    def command_unset(self, args):
+        if not args:
+            self.console.print("[red]Usage: unset <option>[/red]")
+            return
+        try:
+            self.context.unset(args[0])
+        except ValueError as e:
+            self.console.print(f"[red]{e}[/red]")
+            return
+        self.console.print(f"[green]{args[0]} reset to {self.context.get(args[0])}[/green]")
 
     def command_scan(self, args):
         # `diff` is a subcommand, so it can't also be used as a scan name.
@@ -129,7 +149,7 @@ class InteractiveConsole:
             return
 
         if len(args) < 2:
-            self.console.print("[red]Usage: scan <name> <ip/host>  |  scan diff <addr>[/red]")
+            self.console.print("[red]Usage: scan <name> <ip/host>  |  scan diff <name|addr>[/red]")
             return
 
         name, target = args[0], args[1]
@@ -171,9 +191,9 @@ class InteractiveConsole:
         self.console.print(table)
 
     def command_scan_diff(self, args):
-        """`scan diff <addr>`: compares the host's last two finished runs."""
+        """`scan diff <name|addr>`: compares the host's last two finished runs."""
         if not args:
-            self.console.print("[red]Usage: scan diff <addr>[/red]")
+            self.console.print("[red]Usage: scan diff <name|addr>[/red]")
             return
         host = self._find_host_or_warn(args[0])
         if not host:
@@ -229,16 +249,34 @@ class InteractiveConsole:
             console=self.console,
         )
 
-    def _find_host_or_warn(self, addr: str):
-        host = self.session_db.query(Host).filter_by(addr=addr).first()
-        if not host:
-            self.console.print(f"[red]Host '{addr}' not found.[/red]")
-        return host
+    def _find_host_or_warn(self, ident: str):
+        """Finds a host by address or by the name it was scanned under.
+
+        The address wins when both could match (it's the unique identity). A name
+        can be reused across addresses, so an ambiguous one is reported instead
+        of guessing.
+        """
+        host = self.session_db.query(Host).filter_by(addr=ident).first()
+        if host:
+            return host
+
+        matches = self.session_db.query(Host).filter_by(nome=ident).order_by(Host.addr).all()
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            addrs = ', '.join(h.addr for h in matches)
+            self.console.print(
+                f"[red]Name '{ident}' is ambiguous ({addrs}). Use the address instead.[/red]"
+            )
+            return None
+
+        self.console.print(f"[red]Host '{ident}' not found.[/red]")
+        return None
 
     def command_hosts(self, args):
         if args and args[0] == '-d':
             if len(args) < 2:
-                self.console.print("[red]Usage: hosts -d <addr|all>[/red]")
+                self.console.print("[red]Usage: hosts -d <name|addr|all>[/red]")
                 return
             target = args[1]
             if target == 'all':
@@ -275,7 +313,7 @@ class InteractiveConsole:
     def command_services(self, args):
         if args and args[0] == '-d':
             if len(args) < 2:
-                self.console.print("[red]Usage: services -d <addr|all>[/red]")
+                self.console.print("[red]Usage: services -d <name|addr|all>[/red]")
                 return
             target = args[1]
             if target == 'all':
@@ -318,7 +356,7 @@ class InteractiveConsole:
     def command_vulns(self, args):
         if args and args[0] == '-d':
             if len(args) < 2:
-                self.console.print("[red]Usage: vulns -d <addr|all>[/red]")
+                self.console.print("[red]Usage: vulns -d <name|addr|all>[/red]")
                 return
             target = args[1]
             if target == 'all':
@@ -385,19 +423,17 @@ class InteractiveConsole:
         self.console.clear()
 
     def command_options(self, args):
-        self.console.print(args)
-        self.handle_options()
-
-    def command_help(self, args):
-        self.print_help(args)
-
-    def handle_options(self):
         table = Table(title="Options")
         table.add_column("Option", style="cyan")
         table.add_column("Value", style="white")
-        for key, value in self.env.items():
-            table.add_row(key, value)
+        table.add_column("Default", style="white")
+        table.add_column("Description", style="white")
+        for name, value, default, description in self.context.rows():
+            table.add_row(name, value, default, description)
         self.console.print(table)
+
+    def command_help(self, args):
+        self.print_help(args)
 
     def handle_whois(self, domain: str):
         self.console.print(f"[*] Running whois on [bold cyan]{domain}[/bold cyan]...")
@@ -507,7 +543,11 @@ class InteractiveConsole:
 
     def handle_scan(self, name: str, target: str):
         """Scan phase: rustscan (discovery) -> nmap -sV (fingerprint) -> searchsploit (exploits)."""
-        scan_phase = ScanPhase(self.session_db)
+        scan_phase = ScanPhase(
+            self.session_db,
+            rustscan_batch=self.context.get('rustscan_batch'),
+            rustscan_timeout=self.context.get('rustscan_timeout'),
+        )
 
         if not self._ensure_tool_available('rustscan', scan_phase.rustscan, required=True):
             return
@@ -618,13 +658,14 @@ class InteractiveConsole:
         table.add_column("Description", style="white")
         table.add_row("whois <domain>", "Run a whois query against the domain and save it.")
         table.add_row("scan <name> <ip/host>", "Rustscan + nmap -sV + searchsploit; save to DB.")
-        table.add_row("scans [addr]", "List scan runs (history), optionally for one host.")
-        table.add_row("scan diff <addr>", "Compare the host's last two finished scans.")
-        table.add_row("hosts [-d <addr|all>]", "List hosts, or delete one host (cascades) / all hosts.")
-        table.add_row("services [addr] [-d <addr|all>]", "List services (optionally by host), or delete them.")
-        table.add_row("vulns [addr] [-d <addr|all>]", "List vulnerabilities (optionally by host), or delete them.")
-        table.add_row("set <key> <value>", "Set a session variable.")
-        table.add_row("options", "Show session variables.")
+        table.add_row("scans [name|addr]", "List scan runs (history), optionally for one host.")
+        table.add_row("scan diff <name|addr>", "Compare the host's last two finished scans.")
+        table.add_row("hosts [-d <name|addr|all>]", "List hosts, or delete one host (cascades) / all hosts.")
+        table.add_row("services [name|addr] [-d <name|addr|all>]", "List services (optionally by host), or delete them.")
+        table.add_row("vulns [name|addr] [-d <name|addr|all>]", "List vulnerabilities (optionally by host), or delete them.")
+        table.add_row("set <option> <value>", "Set a session option (rustscan_batch, rustscan_timeout, user_agent).")
+        table.add_row("unset <option>", "Reset a session option to its default.")
+        table.add_row("options", "Show session options, their defaults and what they do.")
         table.add_row("clear", "Clear the terminal screen.")
         table.add_row("exit / quit", "Exit the console.")
         self.console.print(table)

@@ -41,6 +41,8 @@ class ScanPhase(PhaseModule):
         searchsploit=SearchsploitTool,
         xml_output_path='/tmp/sharingan_nmap_scan.xml',
         min_cvss=7.0,
+        rustscan_batch=4500,
+        rustscan_timeout=3000,
     ):
         self.session = db_session
         self.rustscan = rustscan
@@ -49,6 +51,8 @@ class ScanPhase(PhaseModule):
         self.searchsploit = searchsploit
         self.xml_output_path = xml_output_path
         self.min_cvss = min_cvss
+        self.rustscan_batch = rustscan_batch
+        self.rustscan_timeout = rustscan_timeout
 
         # State from the last `run()` — the console uses this to know whether a
         # step (vulners/searchsploit) actually ran and found nothing, or never
@@ -105,7 +109,9 @@ class ScanPhase(PhaseModule):
 
     def _run_steps(self, host: Host, run: ScanRun, target: str, notify) -> None:
         notify('Scanning open ports (rustscan)...')
-        open_ports = self.rustscan.scan_ports(target)
+        open_ports = self.rustscan.scan_ports(
+            target, timeout_ms=self.rustscan_timeout, batch_size=self.rustscan_batch
+        )
         if not open_ports:
             host.ports_active = '[]'
             self.session.add(host)
