@@ -3,6 +3,8 @@
 Sharingan é uma ferramenta de monitoramento de rede desenvolvida em Python, capaz de verificar a conectividade de serviços via TCP, e que está em evolução para suportar novas funcionalidades como parsing de HTML, fuzzing e escaneamento de portas.
 
 
+> **Documentação completa (em inglês):** todos os comandos do console e as opções de sessão (`set`) estão documentados em `docs/` (gerado com [MkDocs](https://www.mkdocs.org/) + Material). Para ler localmente: `uv run mkdocs serve` e abra `http://127.0.0.1:8000`. Ou leia direto em `docs/index.md`, `docs/commands.md`, `docs/options.md`, `docs/architecture.md`.
+
 Índice
 - [Sobre](#sobre)
 - [Funcionalidades](#funcionalidades)

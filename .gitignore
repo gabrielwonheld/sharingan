@@ -11,3 +11,4 @@ gpt*
 *.db
 nmap.xml
 msfinstall
+/site/
