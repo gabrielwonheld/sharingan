@@ -8,9 +8,11 @@ from rich.table import Table
 
 from db.database import init_db, get_session
 from core.context import SessionContext
+from core.scope import decide, parse_scope_value
 from phases.scan.scan_diff import diff_scan_runs
 from services.whois_service import WhoisService
 from model.host import Host
+from model.scope_model import ScopeRule
 from model.service_model import ScanRun, Service, Vulnerability, current_services_filter
 from phases.scan.scan_phase import ScanPhase
 from phases.scan.tools.installer import ToolInstaller
@@ -54,6 +56,7 @@ class InteractiveConsole:
             'whois': self.command_whois,
             'set': self.command_set,
             'unset': self.command_unset,
+            'scope': self.command_scope,
             'scan': self.command_scan,
             'scans': self.command_scans,
             'hosts': self.command_hosts,
@@ -65,7 +68,7 @@ class InteractiveConsole:
         init_db()
 
         self.completer = WordCompleter([
-            'whois', 'scan', 'scans', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'options',
+            'whois', 'scan', 'scans', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
             'hosts', 'services', 'vulns',
         ], ignore_case=True)
 
@@ -141,6 +144,73 @@ class InteractiveConsole:
             self.console.print(f"[red]{e}[/red]")
             return
         self.console.print(f"[green]{args[0]} reset to {self.context.get(args[0])}[/green]")
+
+    def command_scope(self, args):
+        """`scope` lists; `scope add|exclude <value>`; `scope remove <value>`."""
+        if not args:
+            self._print_scope()
+            return
+
+        action, values = args[0], args[1:]
+        if action in ('add', 'exclude'):
+            if not values:
+                self.console.print(f"[red]Usage: scope {action} <domain|ip|cidr>[/red]")
+                return
+            try:
+                kind, value = parse_scope_value(values[0])
+            except ValueError as e:
+                self.console.print(f"[red]{e}[/red]")
+                return
+            rule = self.session_db.query(ScopeRule).filter_by(value=value).first()
+            if rule is None:
+                rule = ScopeRule(kind=kind, value=value)
+            rule.allow = action == 'add'
+            self.session_db.add(rule)
+            self.session_db.commit()
+            label = 'included in' if rule.allow else 'excluded from'
+            self.console.print(f"[green]{value} {label} scope.[/green]")
+        elif action == 'remove':
+            if not values:
+                self.console.print("[red]Usage: scope remove <value>[/red]")
+                return
+            try:
+                _, value = parse_scope_value(values[0])
+            except ValueError as e:
+                self.console.print(f"[red]{e}[/red]")
+                return
+            rule = self.session_db.query(ScopeRule).filter_by(value=value).first()
+            if rule is None:
+                self.console.print(f"[yellow]'{value}' is not in the scope.[/yellow]")
+                return
+            self.session_db.delete(rule)
+            self.session_db.commit()
+            self.console.print(f"[green]{value} removed from scope.[/green]")
+        else:
+            self.console.print("[red]Usage: scope [add|exclude|remove <value>][/red]")
+
+    def _print_scope(self):
+        rules = self.session_db.query(ScopeRule).order_by(ScopeRule.allow.desc(), ScopeRule.value).all()
+        if not rules:
+            self.console.print("[yellow]No scope defined: any target can be scanned. Use 'scope add <domain|ip|cidr>'.[/yellow]")
+            return
+        table = Table(title="Scope")
+        table.add_column("Rule", style="white")
+        table.add_column("Type", style="white")
+        table.add_column("Value", style="cyan")
+        for rule in rules:
+            table.add_row('include' if rule.allow else 'exclude', rule.kind, rule.value)
+        self.console.print(table)
+
+    def _target_allowed_by_scope(self, target: str) -> bool:
+        """Checks the scope before anything touches the target; prints why when blocked."""
+        rules = [(r.kind, r.value, r.allow) for r in self.session_db.query(ScopeRule)]
+        decision = decide(target, rules)
+        if not decision.allowed:
+            self.console.print(f"[red]{decision.reason} Review it with 'scope'.[/red]")
+            return False
+        if decision.unrestricted:
+            self.console.print("[yellow]No scope defined: scanning without restriction (see 'scope add').[/yellow]")
+        return True
 
     def command_scan(self, args):
         # `diff` is a subcommand, so it can't also be used as a scan name.
@@ -543,6 +613,9 @@ class InteractiveConsole:
 
     def handle_scan(self, name: str, target: str):
         """Scan phase: rustscan (discovery) -> nmap -sV (fingerprint) -> searchsploit (exploits)."""
+        if not self._target_allowed_by_scope(target):
+            return
+
         scan_phase = ScanPhase(
             self.session_db,
             rustscan_batch=self.context.get('rustscan_batch'),
@@ -658,6 +731,7 @@ class InteractiveConsole:
         table.add_column("Description", style="white")
         table.add_row("whois <domain>", "Run a whois query against the domain and save it.")
         table.add_row("scan <name> <ip/host>", "Rustscan + nmap -sV + searchsploit; save to DB.")
+        table.add_row("scope [add|exclude|remove <value>]", "Show or edit the scope (domain, IP or CIDR). Scans outside it are blocked.")
         table.add_row("scans [name|addr]", "List scan runs (history), optionally for one host.")
         table.add_row("scan diff <name|addr>", "Compare the host's last two finished scans.")
         table.add_row("hosts [-d <name|addr|all>]", "List hosts, or delete one host (cascades) / all hosts.")

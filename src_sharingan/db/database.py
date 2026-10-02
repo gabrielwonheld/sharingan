@@ -27,6 +27,7 @@ def init_db():
     # Make sure the models are imported before create_all()
     from model.host import Host
     from model.whois_model import WhoisRecord
+    from model.scope_model import ScopeRule
     from model.service_model import ScanRun, Service, Vulnerability, ExploitMatch
     from db.migrations import run_lightweight_migrations
     Base.metadata.create_all(bind=engine)

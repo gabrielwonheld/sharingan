@@ -49,3 +49,16 @@ def test_init_db_runs_lightweight_migrations_after_create_all():
 
     mock_create_all.assert_called_once_with(bind=database.engine)
     mock_migrate.assert_called_once_with(database.engine)
+
+
+def test_init_db_creates_the_scope_rules_table(tmp_path, monkeypatch):
+    from sqlalchemy import create_engine, inspect
+
+    import db.database as database
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'x.db'}")
+    monkeypatch.setattr(database, 'engine', engine)
+
+    database.init_db()
+
+    assert 'scope_rules' in inspect(engine).get_table_names()

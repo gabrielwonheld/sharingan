@@ -11,7 +11,8 @@ Notes from a planning conversation. Nothing here is implemented yet.
 ## Progress (2026-10-02)
 
 - Done: `ScanRun` model + migration, `ScanPhase` writes per run (history kept), `current_services_filter`, `scans` and `scan diff` console commands.
-- Pending: commit the work, delete dead `ubuntu_cve_tool.py`, untrack `sharingan.db`; then scope (`Target`), basic recon/asset discovery, alerts.
+- Done: commits, dead code removal, `set`/`unset`/`options` (`SessionContext`), scope (`scope` command + enforcement in `scan`).
+- Pending: web phase (crawl + directory enumeration via ffuf/gobuster, using `user_agent` and the scope check), basic recon/asset discovery, alerts.
 
 ## What the project is today
 

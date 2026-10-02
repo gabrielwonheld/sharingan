@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from core.context import SessionContext
 from db.extensions import Base
 from model.host import Host
+from model.scope_model import ScopeRule
 from model.service_model import ExploitMatch, Service, Vulnerability
 from view.console import InteractiveConsole
 
@@ -1099,3 +1100,93 @@ def test_handle_scan_builds_the_scan_phase_with_the_session_options(mocker):
     console.command_scan(['alvo', '192.0.2.10'])
 
     mock_phase_cls.assert_called_once_with(console.session_db, rustscan_batch=200, rustscan_timeout=9000)
+
+
+def _scope_console():
+    return make_console(make_session())
+
+
+def test_scope_add_exclude_list_and_remove():
+    console = _scope_console()
+
+    console.command_scope(['add', 'Example.com'])
+    console.command_scope(['add', '10.0.0.0/8'])
+    console.command_scope(['exclude', 'admin.example.com'])
+    console.command_scope([])
+
+    assert sorted(_table_cell_values(console.console.print, 'Scope', 'Value')) == [
+        '10.0.0.0/8', 'admin.example.com', 'example.com']
+    assert sorted(_table_cell_values(console.console.print, 'Scope', 'Rule')) == ['exclude', 'include', 'include']
+
+    console.command_scope(['remove', 'example.com'])
+    assert console.session_db.query(ScopeRule).count() == 2
+
+
+def test_scope_add_same_value_again_flips_it_instead_of_duplicating():
+    console = _scope_console()
+
+    console.command_scope(['add', 'example.com'])
+    console.command_scope(['exclude', 'example.com'])
+
+    rule = console.session_db.query(ScopeRule).one()
+    assert rule.allow is False
+
+
+def test_scope_reports_bad_usage_and_invalid_values():
+    console = _scope_console()
+
+    console.command_scope(['add'])
+    console.command_scope(['add', 'not valid'])
+    console.command_scope(['remove', 'unknown.com'])
+    console.command_scope(['bogus'])
+
+    assert len([t for t in _printed(console) if 'red' in t or 'yellow' in t]) == 4
+    assert console.session_db.query(ScopeRule).count() == 0
+
+
+def test_scan_is_blocked_before_anything_runs_when_target_is_out_of_scope(mocker):
+    console = _scope_console()
+    console.command_scope(['add', 'example.com'])
+    mock_phase_cls = mocker.patch('view.console.ScanPhase')
+
+    console.command_scan(['alvo', '192.0.2.10'])
+
+    mock_phase_cls.assert_not_called()
+    assert any('out of scope' in t for t in _printed(console))
+    assert console.session_db.query(Host).count() == 0
+
+
+def test_scan_is_blocked_for_an_excluded_target(mocker):
+    console = _scope_console()
+    console.command_scope(['add', '10.0.0.0/8'])
+    console.command_scope(['exclude', '10.0.0.5'])
+    mock_phase_cls = mocker.patch('view.console.ScanPhase')
+
+    console.command_scan(['alvo', '10.0.0.5'])
+
+    mock_phase_cls.assert_not_called()
+    assert any('excluded' in t for t in _printed(console))
+
+
+def test_scan_runs_when_target_is_in_scope(mocker):
+    console = _scope_console()
+    console.command_scope(['add', 'example.com'])
+    mock_phase_cls = mocker.patch('view.console.ScanPhase')
+    mock_phase_cls.return_value.rustscan = _NeverAvailable
+    mocker.patch('view.console.Confirm.ask', return_value=False)
+
+    console.command_scan(['alvo', 'erp.example.com'])
+
+    mock_phase_cls.assert_called_once()
+
+
+def test_scan_with_empty_scope_warns_but_still_runs(mocker):
+    console = _scope_console()
+    mock_phase_cls = mocker.patch('view.console.ScanPhase')
+    mock_phase_cls.return_value.rustscan = _NeverAvailable
+    mocker.patch('view.console.Confirm.ask', return_value=False)
+
+    console.command_scan(['alvo', '192.0.2.10'])
+
+    mock_phase_cls.assert_called_once()
+    assert any('No scope defined' in t for t in _printed(console))
