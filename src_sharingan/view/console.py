@@ -9,6 +9,7 @@ from rich.table import Table
 from db.database import init_db, get_session
 from core.context import SessionContext
 from core.scope import decide, parse_scope_value
+from phases.recon.recon_phase import ReconPhase
 from phases.scan.scan_diff import diff_scan_runs
 from services.whois_service import WhoisService
 from model.host import Host
@@ -59,6 +60,7 @@ class InteractiveConsole:
             'scope': self.command_scope,
             'scan': self.command_scan,
             'scans': self.command_scans,
+            'recon': self.command_recon,
             'hosts': self.command_hosts,
             'services': self.command_services,
             'vulns': self.command_vulns,
@@ -68,7 +70,7 @@ class InteractiveConsole:
         init_db()
 
         self.completer = WordCompleter([
-            'whois', 'scan', 'scans', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
+            'whois', 'scan', 'scans', 'recon', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
             'hosts', 'services', 'vulns',
         ], ignore_case=True)
 
@@ -305,6 +307,44 @@ class InteractiveConsole:
         for port, cve in diff.resolved_cves:
             table.add_row('resolved CVE', str(port), cve)
         self.console.print(table)
+
+    def command_recon(self, args):
+        """`recon <name> <domain>`: passive subdomain discovery (subfinder)."""
+        if len(args) < 2:
+            self.console.print("[red]Usage: recon <name> <domain>[/red]")
+            return
+
+        name, domain = args[0], args[1]
+        if not self._target_allowed_by_scope(domain):
+            return
+
+        recon_phase = ReconPhase(self.session_db)
+        if not self._ensure_tool_available('subfinder', recon_phase.subfinder, required=True):
+            return
+
+        try:
+            host = recon_phase.run(name=name, domain=domain)
+        except RuntimeError as e:
+            self.session_db.rollback()
+            self.console.print(f"[red]{e}[/red]")
+            return
+        except Exception as e:
+            self.session_db.rollback()
+            self.console.print(f"[red]Error during recon: {e}[/red]")
+            return
+
+        new = set(recon_phase.last_new_subdomains)
+        table = Table(title="Subdomains", caption=f"{name} ({host.addr})")
+        table.add_column("Name", style="cyan")
+        table.add_column("Status", style="white")
+        for subdomain in recon_phase.last_all_subdomains:
+            status = "new" if subdomain in new else "known"
+            table.add_row(subdomain, status)
+        self.console.print(table)
+        self.console.print(
+            f"[*] {len(recon_phase.last_all_subdomains)} subdomain(s) total, "
+            f"{len(new)} new this run."
+        )
 
     # -----------------------------------------------------------------
     # `hosts` / `services` / `vulns` — inspired by msfconsole's commands of the
@@ -733,6 +773,7 @@ class InteractiveConsole:
         table.add_row("scan <name> <ip/host>", "Rustscan + nmap -sV + searchsploit; save to DB.")
         table.add_row("scope [add|exclude|remove <value>]", "Show or edit the scope (domain, IP or CIDR). Scans outside it are blocked.")
         table.add_row("scans [name|addr]", "List scan runs (history), optionally for one host.")
+        table.add_row("recon <name> <domain>", "Passive subdomain discovery (subfinder); shows new vs. known.")
         table.add_row("scan diff <name|addr>", "Compare the host's last two finished scans.")
         table.add_row("hosts [-d <name|addr|all>]", "List hosts, or delete one host (cascades) / all hosts.")
         table.add_row("services [name|addr] [-d <name|addr|all>]", "List services (optionally by host), or delete them.")

@@ -1190,3 +1190,69 @@ def test_scan_with_empty_scope_warns_but_still_runs(mocker):
 
     mock_phase_cls.assert_called_once()
     assert any('No scope defined' in t for t in _printed(console))
+
+
+def test_command_recon_requires_name_and_domain():
+    console = _scope_console()
+
+    console.command_recon(['alvo'])
+
+    assert any('Usage: recon' in t for t in _printed(console))
+
+
+def test_command_recon_blocked_when_out_of_scope(mocker):
+    console = _scope_console()
+    console.command_scope(['add', 'example.com'])
+    mock_phase_cls = mocker.patch('view.console.ReconPhase')
+
+    console.command_recon(['alvo', 'evil.net'])
+
+    mock_phase_cls.assert_not_called()
+    assert any('out of scope' in t for t in _printed(console))
+
+
+def test_command_recon_reports_missing_tool_without_crashing(mocker):
+    console = _scope_console()
+    mock_phase_cls = mocker.patch('view.console.ReconPhase')
+    mock_phase_cls.return_value.subfinder = _NeverAvailable
+    mocker.patch('view.console.Confirm.ask', return_value=False)
+
+    console.command_recon(['alvo', 'example.com'])
+
+    mock_phase_cls.return_value.run.assert_not_called()
+    assert any('subfinder is still unavailable' in t for t in _printed(console))
+
+
+def test_command_recon_shows_subdomains_marking_the_new_ones(mocker):
+    session = make_session()
+    console = make_console(session)
+    console.context = SessionContext()
+    host = Host(nome='alvo', addr='example.com')
+    session.add(host)
+    session.commit()
+
+    mock_phase_cls = mocker.patch('view.console.ReconPhase')
+    fake_phase = mock_phase_cls.return_value
+    fake_phase.subfinder = _AlwaysAvailable
+    fake_phase.run.return_value = host
+    fake_phase.last_new_subdomains = ['beta.example.com']
+    fake_phase.last_all_subdomains = ['api.example.com', 'beta.example.com']
+
+    console.command_recon(['alvo', 'example.com'])
+
+    names = _table_cell_values(console.console.print, 'Subdomains', 'Name')
+    status = _table_cell_values(console.console.print, 'Subdomains', 'Status')
+    assert sorted(zip(names, status)) == [('api.example.com', 'known'), ('beta.example.com', 'new')]
+
+
+def test_command_recon_rolls_back_the_session_when_it_fails(mocker):
+    session = MagicMock()
+    console = make_console(session)
+    console.context = SessionContext()
+    mock_phase_cls = mocker.patch('view.console.ReconPhase')
+    mock_phase_cls.return_value.subfinder = _AlwaysAvailable
+    mock_phase_cls.return_value.run.side_effect = ValueError('boom')
+
+    console.command_recon(['alvo', 'example.com'])
+
+    session.rollback.assert_called_once()

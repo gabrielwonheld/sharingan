@@ -68,11 +68,26 @@ class ToolInstaller:
         return False
 
     @classmethod
+    def install_subfinder(cls) -> bool:
+        # Packaged on Kali's apt (kali.org/tools/subfinder) and on Homebrew;
+        # `go install` is ProjectDiscovery's own documented method everywhere
+        # else — same risk tier as rustscan's `cargo install` (builds from
+        # source via the module proxy, not an opaque downloaded binary).
+        if shutil.which('apt-get'):
+            return cls._run(['sudo', 'apt-get', 'install', '-y', 'subfinder'])
+        if shutil.which('brew'):
+            return cls._run(['brew', 'install', 'subfinder'])
+        if shutil.which('go'):
+            return cls._run(['go', 'install', 'github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest'])
+        return False
+
+    @classmethod
     def install(cls, tool_name: str) -> bool:
         installers = {
             'nmap': cls.install_nmap,
             'searchsploit': cls.install_searchsploit,
             'rustscan': cls.install_rustscan,
+            'subfinder': cls.install_subfinder,
         }
         installer = installers.get(tool_name)
         if installer is None:
@@ -96,6 +111,11 @@ class ToolInstaller:
             'vulners': (
                 'not a package, it is an nmap NSE script — clone https://github.com/vulnersCom/nmap-vulners, '
                 'copy vulners.nse into nmap\'s script folder and run "nmap --script-updatedb"'
+            ),
+            'subfinder': (
+                'apt install subfinder works on Kali; elsewhere use "brew install subfinder" or '
+                '"go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest" '
+                '(see https://github.com/projectdiscovery/subfinder)'
             ),
         }
         return hints.get(tool_name, '')

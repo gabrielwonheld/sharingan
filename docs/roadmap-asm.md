@@ -12,7 +12,8 @@ Notes from a planning conversation. Nothing here is implemented yet.
 
 - Done: `ScanRun` model + migration, `ScanPhase` writes per run (history kept), `current_services_filter`, `scans` and `scan diff` console commands.
 - Done: commits, dead code removal, `set`/`unset`/`options` (`SessionContext`), scope (`scope` command + enforcement in `scan`).
-- Pending: web phase (crawl + directory enumeration via ffuf/gobuster, using `user_agent` and the scope check), basic recon/asset discovery, alerts.
+- Done: Recon phase (`phases/recon/`) — passive subdomain discovery via subfinder, reusing Host, tracking new-vs-known per run.
+- Pending: web phase (crawl + directory enumeration), DNS resolution of discovered subdomains, change-detection alerts across recon runs.
 
 ## What the project is today
 

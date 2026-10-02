@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from model.host import Host
 from model.service_model import ExploitMatch, ScanRun, Service, Vulnerability
 from phases.base import PhaseModule
+from phases.common import get_or_create_host
 from phases.scan.tools.nmap_tool import NmapTool
 from phases.scan.tools.rustscan_tool import RustscanTool
 from phases.scan.tools.searchsploit_tool import SearchsploitTool
@@ -79,7 +80,7 @@ class ScanPhase(PhaseModule):
                 on_progress(step)
 
         self.last_searchsploit_error = None
-        host = self._get_or_create_host(name, target)
+        host = get_or_create_host(self.session, name, target)
         # Every scan is its own ScanRun: its services/vulnerabilities/exploits
         # belong to that run, and previous runs stay in the database as history
         # (the "current" view of a host is just its latest run — see
@@ -185,14 +186,6 @@ class ScanPhase(PhaseModule):
 
         self.last_vulners_enabled = vulners_enabled
         self.last_searchsploit_ran = searchsploit_ran
-
-    def _get_or_create_host(self, name: str, addr: str) -> Host:
-        host = self.session.query(Host).filter_by(addr=addr).first()
-        if not host:
-            host = Host(nome=name, addr=addr)
-            self.session.add(host)
-            self.session.commit()
-        return host
 
     def _persist_services(self, host: Host, run: ScanRun, fingerprints) -> None:
         active_ports = []
