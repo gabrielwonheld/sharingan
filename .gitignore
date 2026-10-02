@@ -8,3 +8,6 @@
 test*
 gpt*
 *__pycache__*
+*.db
+nmap.xml
+msfinstall
