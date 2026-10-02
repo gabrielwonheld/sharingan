@@ -15,6 +15,7 @@ from services.whois_service import WhoisService
 from model.host import Host
 from model.scope_model import ScopeRule
 from model.service_model import ScanRun, Service, Vulnerability, current_services_filter
+from model.subdomain_model import Subdomain
 from phases.scan.scan_phase import ScanPhase
 from phases.scan.tools.installer import ToolInstaller
 
@@ -61,6 +62,7 @@ class InteractiveConsole:
             'scan': self.command_scan,
             'scans': self.command_scans,
             'recon': self.command_recon,
+            'subdomains': self.command_subdomains,
             'hosts': self.command_hosts,
             'services': self.command_services,
             'vulns': self.command_vulns,
@@ -71,7 +73,7 @@ class InteractiveConsole:
 
         self.completer = WordCompleter([
             'whois', 'scan', 'scans', 'recon', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
-            'hosts', 'services', 'vulns',
+            'hosts', 'services', 'vulns', 'subdomains',
         ], ignore_case=True)
 
         self.style = Style.from_dict({
@@ -345,6 +347,55 @@ class InteractiveConsole:
             f"[*] {len(recon_phase.last_all_subdomains)} subdomain(s) total, "
             f"{len(new)} new this run."
         )
+
+    def command_subdomains(self, args):
+        """Lists/deletes `Subdomain` rows found by `recon`. Same shape as
+        `services`/`vulns`: no argument lists everything, `-d <name|addr>`
+        deletes one host's subdomains (keeps the Host), `-d all` deletes
+        every subdomain for every host (asks for confirmation first)."""
+        if args and args[0] == '-d':
+            if len(args) < 2:
+                self.console.print("[red]Usage: subdomains -d <name|addr|all>[/red]")
+                return
+            target = args[1]
+            if target == 'all':
+                if not self._confirm_delete_all('all subdomains'):
+                    self.console.print("[yellow]Cancelled.[/yellow]")
+                    return
+                for subdomain in self.session_db.query(Subdomain).all():
+                    self.session_db.delete(subdomain)
+                self.session_db.commit()
+                self.console.print("[green]All subdomains have been deleted.[/green]")
+                return
+
+            host = self._find_host_or_warn(target)
+            if not host:
+                return
+            for subdomain in self.session_db.query(Subdomain).filter_by(host_id=host.id).all():
+                self.session_db.delete(subdomain)
+            self.session_db.commit()
+            self.console.print(f"[green]Subdomains for '{target}' deleted.[/green]")
+            return
+
+        query = self.session_db.query(Subdomain).join(Host)
+        if args:
+            host = self._find_host_or_warn(args[0])
+            if not host:
+                return
+            query = query.filter(Subdomain.host_id == host.id)
+
+        subdomains = query.order_by(Host.addr, Subdomain.name).all()
+        if not subdomains:
+            self.console.print("[yellow]No subdomains registered yet. Run 'recon' first.[/yellow]")
+            return
+
+        table = Table(title="Subdomains")
+        table.add_column("Host", style="cyan")
+        table.add_column("Name", style="white")
+        table.add_column("Discovered", style="white")
+        for subdomain in subdomains:
+            table.add_row(subdomain.host.addr, subdomain.name, subdomain.discovered_at.strftime('%Y-%m-%d %H:%M:%S'))
+        self.console.print(table)
 
     # -----------------------------------------------------------------
     # `hosts` / `services` / `vulns` — inspired by msfconsole's commands of the
@@ -774,6 +825,7 @@ class InteractiveConsole:
         table.add_row("scope [add|exclude|remove <value>]", "Show or edit the scope (domain, IP or CIDR). Scans outside it are blocked.")
         table.add_row("scans [name|addr]", "List scan runs (history), optionally for one host.")
         table.add_row("recon <name> <domain>", "Passive subdomain discovery (subfinder); shows new vs. known.")
+        table.add_row("subdomains [name|addr] [-d <name|addr|all>]", "List subdomains found by recon, or delete them.")
         table.add_row("scan diff <name|addr>", "Compare the host's last two finished scans.")
         table.add_row("hosts [-d <name|addr|all>]", "List hosts, or delete one host (cascades) / all hosts.")
         table.add_row("services [name|addr] [-d <name|addr|all>]", "List services (optionally by host), or delete them.")

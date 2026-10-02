@@ -1278,3 +1278,106 @@ def test_command_recon_passes_the_subfinder_command_as_progress_callback(mocker)
     mock_phase_cls.return_value.run.assert_called_once_with(
         name='alvo', domain='example.com', on_progress=console._report_progress
     )
+
+
+def _seed_subdomains(session, addr='192.0.2.80', nome='alvo'):
+    from model.subdomain_model import Subdomain
+
+    host = Host(nome=nome, addr=addr)
+    session.add(host)
+    session.commit()
+    session.add_all([
+        Subdomain(host_id=host.id, name='api.' + addr),
+        Subdomain(host_id=host.id, name='www.' + addr),
+    ])
+    session.commit()
+    return host
+
+
+def test_command_subdomains_lists_all():
+    session = make_session()
+    console = make_console(session)
+    _seed_subdomains(session, addr='192.0.2.80', nome='alvo1')
+    _seed_subdomains(session, addr='192.0.2.81', nome='alvo2')
+
+    console.command_subdomains([])
+
+    names = _table_cell_values(console.console.print, 'Subdomains', 'Name')
+    assert sorted(names) == ['api.192.0.2.80', 'api.192.0.2.81', 'www.192.0.2.80', 'www.192.0.2.81']
+
+
+def test_command_subdomains_filtered_by_host():
+    session = make_session()
+    console = make_console(session)
+    _seed_subdomains(session, addr='192.0.2.80', nome='alvo1')
+    _seed_subdomains(session, addr='192.0.2.81', nome='alvo2')
+
+    console.command_subdomains(['alvo1'])
+
+    names = _table_cell_values(console.console.print, 'Subdomains', 'Name')
+    assert sorted(names) == ['api.192.0.2.80', 'www.192.0.2.80']
+
+
+def test_command_subdomains_filtered_by_unknown_host_shows_error():
+    session = make_session()
+    console = make_console(session)
+
+    console.command_subdomains(['nope'])
+
+    assert any('not found' in t for t in _printed(console))
+
+
+def test_command_subdomains_with_none_found_says_so():
+    session = make_session()
+    console = make_console(session)
+
+    console.command_subdomains([])
+
+    assert any('No subdomains' in t for t in _printed(console))
+
+
+def test_command_subdomains_delete_by_host_keeps_the_host():
+    session = make_session()
+    console = make_console(session)
+    host = _seed_subdomains(session)
+
+    console.command_subdomains(['-d', 'alvo'])
+
+    assert session.query(Host).count() == 1
+    from model.subdomain_model import Subdomain
+    assert session.query(Subdomain).count() == 0
+
+
+def test_command_subdomains_delete_requires_a_target():
+    session = make_session()
+    console = make_console(session)
+
+    console.command_subdomains(['-d'])
+
+    assert any('Usage: subdomains -d' in t for t in _printed(console))
+
+
+def test_command_subdomains_delete_all_confirmed(mocker):
+    session = make_session()
+    console = make_console(session)
+    _seed_subdomains(session, addr='192.0.2.80', nome='alvo1')
+    _seed_subdomains(session, addr='192.0.2.81', nome='alvo2')
+    mocker.patch('view.console.Confirm.ask', return_value=True)
+
+    console.command_subdomains(['-d', 'all'])
+
+    from model.subdomain_model import Subdomain
+    assert session.query(Subdomain).count() == 0
+    assert session.query(Host).count() == 2
+
+
+def test_command_subdomains_delete_all_declined(mocker):
+    session = make_session()
+    console = make_console(session)
+    _seed_subdomains(session)
+    mocker.patch('view.console.Confirm.ask', return_value=False)
+
+    console.command_subdomains(['-d', 'all'])
+
+    from model.subdomain_model import Subdomain
+    assert session.query(Subdomain).count() == 2

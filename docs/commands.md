@@ -135,6 +135,23 @@ Sharingan > recon myserver example.com
 [*] Discovering subdomains (subfinder -d example.com)...
 ```
 
+## `subdomains [name|addr] [-d <name|addr|all>]`
+
+Lists or deletes `Subdomain` rows found by `recon` — host, name, and when it
+was first discovered. Same shape as `services`/`vulns`.
+
+| Form | Effect |
+|---|---|
+| `subdomains` | Lists every host's subdomains. |
+| `subdomains <name\|addr>` | Lists only that host's subdomains. |
+| `subdomains -d <name\|addr>` | Deletes that host's subdomains — keeps the `Host` itself. |
+| `subdomains -d all` | Deletes every subdomain for every host. Asks for confirmation first. |
+
+```text
+Sharingan > subdomains
+Sharingan > subdomains myserver
+```
+
 ## `hosts [-d <name|addr|all>]`
 
 | Form | Effect |
