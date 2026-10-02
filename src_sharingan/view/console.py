@@ -7,12 +7,38 @@ from rich.prompt import Confirm
 from rich.table import Table
 
 from db.database import init_db, get_session
+from phases.scan.scan_diff import diff_scan_runs
 from services.whois_service import WhoisService
 from services.set_env_service import SetEnvService
 from model.host import Host
-from model.service_model import ExploitMatch, Service, Vulnerability
+from model.service_model import ScanRun, Service, Vulnerability, current_services_filter
 from phases.scan.scan_phase import ScanPhase
 from phases.scan.tools.installer import ToolInstaller
+
+# `searchsploit -t <product>` does plain text matching with no version
+# awareness, so a common product can return dozens of hits spanning every
+# version ever published. Capping keeps the table scannable; anyone who wants
+# the full list can still run `searchsploit <product>` themselves.
+EXPLOIT_DISPLAY_CAP = 10
+
+
+def _exploit_matched_cve(exploit, known_cves: set) -> str | None:
+    """Returns the CVE from `exploit.cve_codes` (exploit-db's own `Codes`
+    field, e.g. "CVE-2008-3234;OSVDB-48791") that overlaps with `known_cves`
+    (the CVEs vulners already confirmed for this same service), or None.
+
+    This is the noise-reduction signal picked with the user over version-string
+    parsing (fragile — exploit-db titles express version ranges as free text
+    in wildly inconsistent formats) or an exclusive CVE filter (verified
+    empirically to often leave nothing at all, since vulners and exploit-db
+    are independent data sources with no guaranteed overlap)."""
+    if not exploit.cve_codes:
+        return None
+    for code in exploit.cve_codes.split(';'):
+        if code in known_cves:
+            return code
+    return None
+
 
 class InteractiveConsole:
     def __init__(self):
@@ -28,6 +54,7 @@ class InteractiveConsole:
             'whois': self.command_whois,
             'set': self.command_set,
             'scan': self.command_scan,
+            'scans': self.command_scans,
             'hosts': self.command_hosts,
             'services': self.command_services,
             'vulns': self.command_vulns,
@@ -37,7 +64,7 @@ class InteractiveConsole:
         init_db()
 
         self.completer = WordCompleter([
-            'whois', 'scan', 'help', 'exit', 'quit', 'clear', 'set', 'options',
+            'whois', 'scan', 'scans', 'help', 'exit', 'quit', 'clear', 'set', 'options',
             'hosts', 'services', 'vulns',
         ], ignore_case=True)
 
@@ -96,12 +123,98 @@ class InteractiveConsole:
         self.env = SetEnvService().set_env(key, value)
 
     def command_scan(self, args):
+        # `diff` is a subcommand, so it can't also be used as a scan name.
+        if args and args[0] == 'diff':
+            self.command_scan_diff(args[1:])
+            return
+
         if len(args) < 2:
-            self.console.print("[red]Usage: scan <name> <ip/host>[/red]")
+            self.console.print("[red]Usage: scan <name> <ip/host>  |  scan diff <addr>[/red]")
             return
 
         name, target = args[0], args[1]
         self.handle_scan(name, target)
+
+    def command_scans(self, args):
+        """Lists scan runs (history), newest first; optionally for one host."""
+        query = self.session_db.query(ScanRun).join(Host)
+        if args:
+            host = self._find_host_or_warn(args[0])
+            if not host:
+                return
+            query = query.filter(ScanRun.host_id == host.id)
+
+        runs = query.order_by(ScanRun.id.desc()).all()
+        if not runs:
+            self.console.print("[yellow]No scan runs registered yet. Run 'scan' first.[/yellow]")
+            return
+
+        table = Table(title="Scan runs")
+        table.add_column("Run", justify="right", style="cyan")
+        table.add_column("Host", style="white")
+        table.add_column("Status", style="white")
+        table.add_column("Started", style="white")
+        table.add_column("Duration", justify="right")
+        table.add_column("Services", justify="right")
+        for run in runs:
+            duration = '-'
+            if run.finished_at:
+                duration = f"{(run.finished_at - run.started_at).total_seconds():.0f}s"
+            table.add_row(
+                str(run.id),
+                run.host.addr,
+                run.status,
+                run.started_at.strftime('%Y-%m-%d %H:%M:%S'),
+                duration,
+                str(len(run.services)),
+            )
+        self.console.print(table)
+
+    def command_scan_diff(self, args):
+        """`scan diff <addr>`: compares the host's last two finished runs."""
+        if not args:
+            self.console.print("[red]Usage: scan diff <addr>[/red]")
+            return
+        host = self._find_host_or_warn(args[0])
+        if not host:
+            return
+
+        # Failed/interrupted runs are skipped: they'd make ports look closed.
+        runs = (
+            self.session_db.query(ScanRun)
+            .filter_by(host_id=host.id, status='ok')
+            .order_by(ScanRun.id.desc())
+            .limit(2)
+            .all()
+        )
+        if len(runs) < 2:
+            self.console.print(
+                f"[yellow]Need at least two finished scans of '{host.addr}' to compare "
+                f"(found {len(runs)}).[/yellow]"
+            )
+            return
+
+        new, old = runs
+        diff = diff_scan_runs(self.session_db, old, new)
+        if diff.is_empty:
+            self.console.print(f"[green]No changes between run {old.id} and run {new.id}.[/green]")
+            return
+
+        table = Table(title="Scan diff", caption=f"run {old.id} -> run {new.id} ({host.addr})")
+        table.add_column("Change", style="white")
+        table.add_column("Port", justify="right", style="cyan")
+        table.add_column("Detail", style="white")
+        for port in diff.opened:
+            table.add_row('opened', str(port), '-')
+        for port in diff.closed:
+            table.add_row('closed', str(port), '-')
+        for port, before, after in diff.version_changed:
+            table.add_row('version', str(port), f"{before} -> {after}")
+        for port, cve in diff.new_cves:
+            table.add_row('new CVE', str(port), cve)
+        for port, cve in diff.resolved_cves:
+            table.add_row('resolved CVE', str(port), cve)
+        self.console.print(table)
 
     # -----------------------------------------------------------------
     # `hosts` / `services` / `vulns` — inspired by msfconsole's commands of the
@@ -184,7 +297,7 @@ class InteractiveConsole:
             self.console.print(f"[green]Services for '{target}' deleted.[/green]")
             return
 
-        query = self.session_db.query(Service).join(Host)
+        query = self.session_db.query(Service).join(Host).filter(current_services_filter())
         if args:
             host = self._find_host_or_warn(args[0])
             if not host:
@@ -233,7 +346,7 @@ class InteractiveConsole:
             self.console.print(f"[green]Vulnerabilities for '{target}' deleted.[/green]")
             return
 
-        query = self.session_db.query(Vulnerability).join(Service).join(Host)
+        query = self.session_db.query(Vulnerability).join(Service).join(Host).filter(current_services_filter())
         if args:
             host = self._find_host_or_warn(args[0])
             if not host:
@@ -351,6 +464,47 @@ class InteractiveConsole:
         message sitting there until the whole scan finishes."""
         self.console.print(f"[*] {step}")
 
+    def _print_exploit_table(self, service: Service) -> None:
+        """One table per service instead of one flat list mixing every
+        service on the host — `ExploitMatch` rows are attributed to the exact
+        service they were searched for (see `ScanPhase._persist_exploit_matches`).
+
+        Rows are sorted with CVE-confirmed matches first (their own CVE shown
+        in the CVE column), then exploit-db's own `verified` flag, then by
+        title; capped at `EXPLOIT_DISPLAY_CAP` with a note for how many were
+        left out, instead of dumping every version-agnostic text match."""
+        known_cves = {v.cve for v in service.vulnerabilities}
+        matches = sorted(
+            service.exploit_matches,
+            key=lambda m: (
+                _exploit_matched_cve(m, known_cves) is None,
+                not m.verified,
+                m.title,
+            ),
+        )
+        shown, hidden_count = matches[:EXPLOIT_DISPLAY_CAP], max(0, len(matches) - EXPLOIT_DISPLAY_CAP)
+
+        service_label = f"{service.product or service.name or '?'} {service.version or ''}".strip()
+        exploit_table = Table(title=f"Exploits — port {service.port} ({service_label})")
+        exploit_table.add_column("EDB-ID", style="cyan")
+        exploit_table.add_column("Title", style="white")
+        exploit_table.add_column("CVE", style="green")
+        for match in shown:
+            exploit_table.add_row(match.edb_id or '-', match.title, _exploit_matched_cve(match, known_cves) or '-')
+        self.console.print(exploit_table)
+
+        if hidden_count:
+            # Same first-word extraction ScanPhase used to search (see its
+            # comment): the full `product` string is often multi-word and
+            # `searchsploit -t` requires every word to literally appear, so
+            # suggesting the full string here would be a command that finds
+            # nothing.
+            full_term = service.product or service.name
+            search_term = full_term.split()[0] if full_term else full_term
+            self.console.print(
+                f"[dim]+{hidden_count} more — run 'searchsploit {search_term}' for the full list.[/dim]"
+            )
+
     def handle_scan(self, name: str, target: str):
         """Scan phase: rustscan (discovery) -> nmap -sV (fingerprint) -> searchsploit (exploits)."""
         scan_phase = ScanPhase(self.session_db)
@@ -376,15 +530,19 @@ class InteractiveConsole:
         except RuntimeError as e:
             # External tool missing from PATH (rustscan/nmap/searchsploit) — not a
             # bug, an environment prerequisite.
+            self.session_db.rollback()
             self.console.print(f"[red]{e}[/red]")
             return
         except Exception as e:
+            # Without the rollback, a failed flush leaves the shared session
+            # poisoned and every later command fails too.
+            self.session_db.rollback()
             self.console.print(f"[red]Error during scan: {e}[/red]")
             return
 
         services = (
             self.session_db.query(Service)
-            .filter_by(host_id=host_record.id)
+            .filter(Service.host_id == host_record.id, current_services_filter())
             .order_by(Service.port)
             .all()
         )
@@ -404,7 +562,7 @@ class InteractiveConsole:
         vulnerabilities = (
             self.session_db.query(Vulnerability)
             .join(Service)
-            .filter(Service.host_id == host_record.id)
+            .filter(Service.host_id == host_record.id, current_services_filter())
             .order_by(Vulnerability.cvss.desc())
             .all()
         )
@@ -427,20 +585,11 @@ class InteractiveConsole:
                 "[green]No relevant vulnerabilities found (vulners).[/green]"
             )
 
-        exploits = (
-            self.session_db.query(ExploitMatch)
-            .join(Service)
-            .filter(Service.host_id == host_record.id)
-            .all()
-        )
+        services_with_exploits = [s for s in services if s.exploit_matches]
 
-        if exploits:
-            exploit_table = Table(title="Exploits found (searchsploit)")
-            exploit_table.add_column("EDB-ID", style="cyan")
-            exploit_table.add_column("Title", style="white")
-            for exploit in exploits:
-                exploit_table.add_row(exploit.edb_id or '-', exploit.title)
-            self.console.print(exploit_table)
+        if services_with_exploits:
+            for service in services_with_exploits:
+                self._print_exploit_table(service)
         elif scan_phase.last_searchsploit_error:
             # searchsploit was available but failed at runtime (e.g. missing
             # xmllint) — ScanPhase already absorbed the exception and kept the
@@ -469,6 +618,8 @@ class InteractiveConsole:
         table.add_column("Description", style="white")
         table.add_row("whois <domain>", "Run a whois query against the domain and save it.")
         table.add_row("scan <name> <ip/host>", "Rustscan + nmap -sV + searchsploit; save to DB.")
+        table.add_row("scans [addr]", "List scan runs (history), optionally for one host.")
+        table.add_row("scan diff <addr>", "Compare the host's last two finished scans.")
         table.add_row("hosts [-d <addr|all>]", "List hosts, or delete one host (cascades) / all hosts.")
         table.add_row("services [addr] [-d <addr|all>]", "List services (optionally by host), or delete them.")
         table.add_row("vulns [addr] [-d <addr|all>]", "List vulnerabilities (optionally by host), or delete them.")

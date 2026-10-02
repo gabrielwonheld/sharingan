@@ -1,8 +1,10 @@
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from db.extensions import Base
-from model.service_model import ExploitMatch, Service, Vulnerability
+from model.host import Host
+from model.service_model import ExploitMatch, ScanRun, Service, Vulnerability, current_services_filter
 from phases.base import PhaseModule
 from phases.scan.scan_phase import ScanPhase
 from phases.scan.tools.nmap_tool import ServiceFingerprint
@@ -38,15 +40,21 @@ class FakeNmapWithGuessedNameOnly:
 
 
 class FakeSearchsploit:
+    """Only 'OpenSSH' has a match — lets tests prove exploits land on the
+    *correct* service (the port 22 OpenSSH one, not nginx on port 80) instead
+    of always the host's first service."""
+
     @classmethod
     def is_available(cls):
         return True
 
     @classmethod
-    def search_nmap_xml(cls, xml_path):
-        return [
-            {'Title': 'OpenSSH 8.9p1 - Example Exploit', 'EDB-ID': '12345', 'Path': '/path/exploit.py'},
-        ]
+    def search_product(cls, product):
+        if product == 'OpenSSH':
+            return [
+                {'Title': 'OpenSSH 8.9p1 - Example Exploit', 'EDB-ID': '12345', 'Path': '/path/exploit.py'},
+            ]
+        return []
 
 
 class UnavailableSearchsploit:
@@ -55,7 +63,7 @@ class UnavailableSearchsploit:
         return False
 
     @classmethod
-    def search_nmap_xml(cls, xml_path):
+    def search_product(cls, product):
         raise AssertionError('should not be called when unavailable')
 
 
@@ -134,6 +142,78 @@ def make_phase(session, **overrides):
     return ScanPhase(session, **kwargs)
 
 
+def test_scan_phase_searches_only_the_first_word_of_a_multi_word_product():
+    """Real bug found during manual verification (2026-09-17) against a live
+    target: nmap's own `product` field is often a multi-word descriptive
+    string ("Redis key-value store", "PostgreSQL DB"), not just the short
+    name exploit-db titles use. Confirmed empirically that `searchsploit -t`
+    requires *every* word supplied to appear (whole-word, not substring) —
+    `searchsploit -t "Redis key-value store"` returns 0 results even though
+    `searchsploit -t redis` finds the 5 real matches; same story for
+    "PostgreSQL DB" (0) vs "PostgreSQL" (13). `ScanPhase` must search only the
+    product's first word."""
+    session = make_session()
+
+    received_terms = []
+
+    class RecordingSearchsploit:
+        @classmethod
+        def is_available(cls):
+            return True
+
+        @classmethod
+        def search_product(cls, product):
+            received_terms.append(product)
+            return []
+
+    class NmapWithMultiWordProduct:
+        @classmethod
+        def fingerprint(cls, target, ports, xml_output_path, extra_args=None):
+            return [
+                ServiceFingerprint(6379, 'tcp', 'open', 'Redis key-value store', '5.0.7', 'Redis key-value store 5.0.7'),
+            ]
+
+    phase = make_phase(session, nmap=NmapWithMultiWordProduct, searchsploit=RecordingSearchsploit)
+    phase.run(name='alvo', target='192.0.2.12')
+
+    assert received_terms == ['Redis']
+
+
+def test_scan_phase_does_not_search_exploits_for_a_service_nmap_could_not_identify():
+    """Real bug found during manual verification (2026-09-17) against a live
+    target: a port nmap can't fingerprint at all gets `<service name="unknown">`
+    in the XML — literally the string "unknown", not a real product name.
+    Searching `searchsploit -t unknown` matched completely unrelated exploits
+    (LibTIFF, a Windows COM privilege escalation, a Firefox/Safari one) for a
+    port that turned out to just be a local VS Code process. "unknown" must
+    be treated the same as no identification at all — skip the search."""
+    session = make_session()
+
+    received_terms = []
+
+    class RecordingSearchsploit:
+        @classmethod
+        def is_available(cls):
+            return True
+
+        @classmethod
+        def search_product(cls, product):
+            received_terms.append(product)
+            return []
+
+    class NmapWithUnidentifiedService:
+        @classmethod
+        def fingerprint(cls, target, ports, xml_output_path, extra_args=None):
+            return [
+                ServiceFingerprint(16501, 'tcp', 'open', None, None, None, 'unknown'),
+            ]
+
+    phase = make_phase(session, nmap=NmapWithUnidentifiedService, searchsploit=RecordingSearchsploit)
+    phase.run(name='alvo', target='192.0.2.13')
+
+    assert received_terms == []
+
+
 def test_scan_phase_is_a_phase_module():
     assert issubclass(ScanPhase, PhaseModule)
     session = make_session()
@@ -161,6 +241,29 @@ def test_scan_phase_persists_services_and_exploit_matches():
     assert matches[0].edb_id == '12345'
 
 
+def test_scan_phase_attributes_exploit_matches_to_the_correct_service():
+    """Real bug fixed (pending item #7 in CLAUDE.md): exploit matches used to
+    always be attached to the host's *first* `Service`, regardless of which
+    product they actually matched — `searchsploit --nmap` gave no reliable
+    way to know which port a hit came from. Now `ScanPhase` searches
+    per-service (`SearchsploitTool.search_product`, once per fingerprinted
+    product), so each match is written against its own service. Here only
+    'OpenSSH' (port 22) has a match; nginx (port 80) must end up with none —
+    not "the host's first service" (which nginx isn't, but proves the
+    association is real rather than incidentally correct)."""
+    session = make_session()
+    phase = make_phase(session)
+
+    host = phase.run(name='alvo-teste', target='192.0.2.11')
+
+    ssh_service = session.query(Service).filter_by(host_id=host.id, port=22).one()
+    nginx_service = session.query(Service).filter_by(host_id=host.id, port=80).one()
+
+    assert len(ssh_service.exploit_matches) == 1
+    assert ssh_service.exploit_matches[0].edb_id == '12345'
+    assert nginx_service.exploit_matches == []
+
+
 def test_scan_phase_persists_guessed_service_name_when_product_is_unknown():
     """The console's 'Service' column fell back to only `product`/`version`, so a
     port nmap couldn't fingerprint a banner for showed nothing but '?' even when
@@ -176,10 +279,26 @@ def test_scan_phase_persists_guessed_service_name_when_product_is_unknown():
     assert service.name == 'wap-wsp'
 
 
-def test_scan_phase_rescan_replaces_previous_services_instead_of_duplicating():
-    """Real bug in use: running `scan` multiple times on the same host kept
-    stacking duplicate `Service`/`Vulnerability`/`ExploitMatch` rows on every run,
-    instead of the new scan replacing that host's previous snapshot."""
+def _current_services(session, host):
+    return session.query(Service).filter(Service.host_id == host.id, current_services_filter()).all()
+
+
+def test_scan_phase_creates_a_finished_scan_run_with_its_services():
+    session = make_session()
+    phase = make_phase(session)
+
+    host = phase.run(name='alvo', target='192.0.2.99')
+
+    run = session.query(ScanRun).filter_by(host_id=host.id).one()
+    assert run.status == 'ok'
+    assert run.started_at is not None and run.finished_at is not None
+    assert {s.scan_run_id for s in session.query(Service).filter_by(host_id=host.id)} == {run.id}
+    assert phase.last_scan_run.id == run.id
+
+
+def test_scan_phase_rescan_keeps_history_but_current_view_shows_only_the_latest_run():
+    """Real bug in use: re-running `scan` stacked duplicate rows. Now each run is
+    kept as history, and the "current" view is just the newest run."""
     session = make_session()
     phase = make_phase(session, vulners=FakeVulnersWithFindings)
 
@@ -187,21 +306,21 @@ def test_scan_phase_rescan_replaces_previous_services_instead_of_duplicating():
     host2 = phase.run(name='alvo', target='192.0.2.100')
 
     assert host1.id == host2.id  # same host, doesn't duplicate the Host either
-    services = session.query(Service).filter_by(host_id=host2.id).all()
-    assert {s.port for s in services} == {22, 80}  # not {22, 22, 80, 80}
-    assert len(services) == 2
+    assert session.query(ScanRun).filter_by(host_id=host2.id).count() == 2
+    assert session.query(Service).filter_by(host_id=host2.id).count() == 4  # history kept
 
-    vulns = session.query(Vulnerability).all()
-    assert len(vulns) == 1  # not 2
+    current = _current_services(session, host2)
+    assert {s.port for s in current} == {22, 80}
+    assert len(current) == 2
+    # vulnerabilities/exploits belong to the run that found them: one each in the
+    # latest run, none leaking across runs onto the same service
+    assert sum(len(s.vulnerabilities) for s in current) == 1
+    assert sum(len(s.exploit_matches) for s in current) == 1
 
-    matches = session.query(ExploitMatch).all()
-    assert len(matches) == 1  # not 2
 
-
-def test_scan_phase_rescan_with_no_open_ports_clears_stale_services():
+def test_scan_phase_rescan_with_no_open_ports_makes_the_current_view_empty():
     """If the host no longer shows any open port on a re-scan, that's its current
-    state — the `Service` rows from a previous scan would be lying about the host
-    if they stayed in the database."""
+    state — the previous run stays as history, but is no longer "current"."""
     session = make_session()
     phase = make_phase(session)
 
@@ -212,7 +331,28 @@ def test_scan_phase_rescan_with_no_open_ports_clears_stale_services():
     host = phase2.run(name='alvo', target='192.0.2.101')
 
     assert host.ports_active == '[]'
-    assert session.query(Service).filter_by(host_id=host.id).count() == 0
+    assert _current_services(session, host) == []
+    assert session.query(ScanRun).filter_by(host_id=host.id).count() == 2
+    assert phase2.last_scan_run.status == 'ok'
+
+
+def test_scan_phase_marks_run_failed_and_keeps_previous_result_current_when_a_step_blows_up():
+    session = make_session()
+    make_phase(session).run(name='alvo', target='192.0.2.102')
+
+    class BrokenNmap:
+        @classmethod
+        def fingerprint(cls, *args, **kwargs):
+            raise RuntimeError('nmap exploded')
+
+    phase = make_phase(session, nmap=BrokenNmap)
+    with pytest.raises(RuntimeError):
+        phase.run(name='alvo', target='192.0.2.102')
+
+    host = session.query(Host).filter_by(addr='192.0.2.102').one()
+    assert phase.last_scan_run.status == 'failed'
+    assert phase.last_scan_run.finished_at is not None
+    assert {s.port for s in _current_services(session, host)} == {22, 80}
 
 
 def test_scan_phase_with_no_open_ports_does_not_call_nmap():
@@ -264,7 +404,7 @@ def test_scan_phase_skips_searchsploit_when_vulners_finds_nothing():
             return True
 
         @classmethod
-        def search_nmap_xml(cls, xml_path):
+        def search_product(cls, product):
             raise AssertionError('should not run when vulners found nothing relevant')
 
     phase = make_phase(session, vulners=FakeVulnersNoFindings, searchsploit=SearchsploitThatShouldNotRun)
@@ -306,7 +446,7 @@ def test_scan_phase_records_last_run_flags_when_vulners_finds_nothing_relevant()
             return True
 
         @classmethod
-        def search_nmap_xml(cls, xml_path):
+        def search_product(cls, product):
             raise AssertionError('should not run when vulners found nothing relevant')
 
     phase = make_phase(session, vulners=FakeVulnersNoFindings, searchsploit=SearchsploitThatShouldNotRun)
@@ -333,8 +473,8 @@ def test_scan_phase_survives_searchsploit_runtime_failure():
             return True
 
         @classmethod
-        def search_nmap_xml(cls, xml_path):
-            raise subprocess.CalledProcessError(1, ['searchsploit', '--nmap', xml_path, '-j'])
+        def search_product(cls, product):
+            raise subprocess.CalledProcessError(1, ['searchsploit', '-t', product, '-j'])
 
     phase = make_phase(session, searchsploit=FailingSearchsploit)
 
@@ -386,7 +526,7 @@ def test_scan_phase_progress_omits_searchsploit_step_when_not_attempted():
             return True
 
         @classmethod
-        def search_nmap_xml(cls, xml_path):
+        def search_product(cls, product):
             raise AssertionError('should not run when vulners found nothing relevant')
 
     phase = make_phase(session, vulners=FakeVulnersNoFindings, searchsploit=SearchsploitThatShouldNotRun)
@@ -432,3 +572,17 @@ def test_scan_phase_passes_vulners_args_into_nmap_when_available():
     phase.run(name='alvo', target='192.0.2.60')
 
     assert received['extra_args'] == ['--script', 'vulners', '--script-args', 'mincvss=7.0']
+
+
+def test_scan_phase_allows_the_same_name_for_different_addresses():
+    """Real bug in use: `hosts.nome` was UNIQUE, so `scan 16bits <domain>` followed
+    by `scan 16bits 127.0.0.1` failed with an IntegrityError. The address
+    identifies a host; the name is just a label."""
+    session = make_session()
+    phase = make_phase(session)
+
+    host1 = phase.run(name='16bits', target='erp.16bits.net.br')
+    host2 = phase.run(name='16bits', target='127.0.0.1')
+
+    assert host1.id != host2.id
+    assert session.query(Host).filter_by(nome='16bits').count() == 2

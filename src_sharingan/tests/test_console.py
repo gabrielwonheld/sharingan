@@ -366,6 +366,108 @@ def test_command_scan_shows_message_when_searchsploit_fails_at_runtime(mocker):
     assert any('searchsploit' in text and 'failed' in text for text in printed)
 
 
+def test_command_scan_groups_exploits_into_one_table_per_service(mocker):
+    """Real UX problem reported by the user: every exploit found (SSH, CUPS,
+    Redis, ...) used to land in a single flat table with no indication of
+    which port/service it was for. `ScanPhase` now attributes each
+    `ExploitMatch` to its own `Service` (see test_scan_phase.py); the console
+    must render that as one table per service instead of one giant list."""
+    session = make_session()
+    console = make_console(session)
+
+    host = Host(nome='alvo', addr='127.0.0.1', ports_active='[22,6379]')
+    session.add(host)
+    session.commit()
+    ssh = Service(host_id=host.id, port=22, protocol='tcp', state='open', product='OpenSSH', version='9.6p1')
+    redis = Service(host_id=host.id, port=6379, protocol='tcp', state='open', product='Redis key-value store', version='5.0.7')
+    session.add_all([ssh, redis])
+    session.commit()
+    session.add(ExploitMatch(service_id=ssh.id, title='OpenSSH exploit', edb_id='1'))
+    session.add(ExploitMatch(service_id=redis.id, title='Redis exploit', edb_id='2'))
+    session.commit()
+
+    mock_phase_cls = mocker.patch('view.console.ScanPhase')
+    mock_phase_cls.return_value.run.return_value = host
+
+    console.command_scan(['alvo', '127.0.0.1'])
+
+    titles = _table_titles(console.console.print)
+    ssh_titles = [t for t in titles if t and 'port 22' in t]
+    redis_titles = [t for t in titles if t and 'port 6379' in t]
+    assert len(ssh_titles) == 1
+    assert len(redis_titles) == 1
+    assert _table_cell_values(console.console.print, ssh_titles[0], 'Title') == ['OpenSSH exploit']
+    assert _table_cell_values(console.console.print, redis_titles[0], 'Title') == ['Redis exploit']
+
+
+def test_command_scan_shows_cve_confirmed_exploit_first_with_its_cve(mocker):
+    """Noise-reduction signal picked with the user: cross-reference each
+    exploit's own CVE tag (exploit-db's 'Codes' field, persisted as
+    `ExploitMatch.cve_codes`) against the CVEs vulners already confirmed for
+    that same service (`Vulnerability.cve`). A confirmed match is shown with
+    its CVE and sorted ahead of one with no such overlap."""
+    session = make_session()
+    console = make_console(session)
+
+    host = Host(nome='alvo', addr='127.0.0.1', ports_active='[6379]')
+    session.add(host)
+    session.commit()
+    service = Service(host_id=host.id, port=6379, protocol='tcp', state='open', product='Redis key-value store', version='5.0.7')
+    session.add(service)
+    session.commit()
+    session.add(Vulnerability(service_id=service.id, cve='CVE-2018-12453', cvss=7.5, reference='https://vulners.com/cve/CVE-2018-12453'))
+    # Added in an order where the confirmed one is NOT already first, to prove
+    # sorting (not insertion order) puts it there.
+    session.add(ExploitMatch(service_id=service.id, title='Redis-cli < 5.0 - Buffer Overflow (PoC)', edb_id='44904', cve_codes='CVE-2018-12326'))
+    session.add(ExploitMatch(service_id=service.id, title='Redis 5.0 - Denial of Service', edb_id='44908', cve_codes='CVE-2018-12453'))
+    session.commit()
+
+    mock_phase_cls = mocker.patch('view.console.ScanPhase')
+    mock_phase_cls.return_value.run.return_value = host
+
+    console.command_scan(['alvo', '127.0.0.1'])
+
+    title = next(t for t in _table_titles(console.console.print) if t and 'port 6379' in t)
+    titles = _table_cell_values(console.console.print, title, 'Title')
+    cves = _table_cell_values(console.console.print, title, 'CVE')
+
+    assert titles[0] == 'Redis 5.0 - Denial of Service'
+    assert cves[0] == 'CVE-2018-12453'
+    assert titles[1] == 'Redis-cli < 5.0 - Buffer Overflow (PoC)'
+    assert cves[1] == '-'
+
+
+def test_command_scan_caps_exploit_rows_per_service_and_notes_how_many_are_hidden(mocker):
+    """`searchsploit -t <product>` can return dozens of undifferentiated
+    version-agnostic hits for a common product (e.g. OpenSSH) — capping the
+    table keeps the screen scannable, with a note instead of silently
+    dropping results."""
+    session = make_session()
+    console = make_console(session)
+
+    host = Host(nome='alvo', addr='127.0.0.1', ports_active='[22]')
+    session.add(host)
+    session.commit()
+    service = Service(host_id=host.id, port=22, protocol='tcp', state='open', product='OpenSSH', version='9.6p1')
+    session.add(service)
+    session.commit()
+    for i in range(12):
+        session.add(ExploitMatch(service_id=service.id, title=f'OpenSSH exploit {i}', edb_id=str(i)))
+    session.commit()
+
+    mock_phase_cls = mocker.patch('view.console.ScanPhase')
+    mock_phase_cls.return_value.run.return_value = host
+
+    console.command_scan(['alvo', '127.0.0.1'])
+
+    title = next(t for t in _table_titles(console.console.print) if t and 'port 22' in t)
+    titles = _table_cell_values(console.console.print, title, 'Title')
+    assert len(titles) == 10
+
+    printed = [str(call.args[0]) for call in console.console.print.call_args_list if call.args]
+    assert any('+2 more' in text for text in printed)
+
+
 def test_handle_scan_prints_each_progress_step_as_scan_phase_reports_it(mocker):
     """User's request: instead of a single static message ("Scanning...") sitting
     there until the whole scan finishes, each step (rustscan / nmap / searchsploit)
@@ -729,3 +831,152 @@ def test_command_vulns_shows_guessed_service_name_when_product_is_unknown():
 
     services = _table_cell_values(console.console.print, 'Vulnerabilities', 'Service')
     assert services == ['elasticsearch']
+
+
+def _seed_two_runs(session):
+    """A host scanned twice: the old run found port 22, the latest found port 80."""
+    from model.service_model import ScanRun
+
+    host = Host(nome='alvo', addr='192.0.2.50', ports_active='[80]')
+    session.add(host)
+    session.commit()
+    old_run = ScanRun(host_id=host.id, status='ok')
+    session.add(old_run)
+    session.commit()
+    new_run = ScanRun(host_id=host.id, status='ok')
+    session.add(new_run)
+    session.commit()
+    old = Service(host_id=host.id, scan_run_id=old_run.id, port=22, state='open', product='OpenSSH')
+    new = Service(host_id=host.id, scan_run_id=new_run.id, port=80, state='open', product='nginx')
+    session.add_all([old, new])
+    session.commit()
+    session.add(Vulnerability(service_id=old.id, cve='CVE-2024-1111', cvss=9.0))
+    session.add(Vulnerability(service_id=new.id, cve='CVE-2024-2222', cvss=7.5))
+    session.commit()
+    return host
+
+
+def test_command_services_shows_only_the_latest_scan_run():
+    session = make_session()
+    console = make_console(session)
+    _seed_two_runs(session)
+
+    console.command_services([])
+
+    assert _table_cell_values(console.console.print, 'Services', 'Port') == ['80']
+
+
+def test_command_vulns_shows_only_the_latest_scan_run():
+    session = make_session()
+    console = make_console(session)
+    _seed_two_runs(session)
+
+    console.command_vulns([])
+
+    assert _table_cell_values(console.console.print, 'Vulnerabilities', 'CVE') == ['CVE-2024-2222']
+
+
+def test_command_scan_rolls_back_the_session_when_the_scan_fails(mocker):
+    """Real bug in use: after one failed scan (IntegrityError during flush) the
+    shared session stayed poisoned, so every later `scan` failed with "This
+    Session's transaction has been rolled back" even for valid input."""
+    session = MagicMock()
+    console = make_console(session)
+    mock_phase_cls = mocker.patch('view.console.ScanPhase')
+    fake_phase = mock_phase_cls.return_value
+    fake_phase.rustscan = fake_phase.nmap = fake_phase.searchsploit = fake_phase.vulners = _AlwaysAvailable
+    fake_phase.run.side_effect = ValueError('boom')
+
+    console.command_scan(['alvo', '192.0.2.10'])
+
+    session.rollback.assert_called_once()
+
+
+def _seed_runs_for_history(session):
+    from datetime import datetime, timedelta
+
+    from model.service_model import ScanRun
+
+    host = Host(nome='alvo', addr='192.0.2.70')
+    session.add(host)
+    session.commit()
+    start = datetime(2026, 10, 2, 12, 0, 0)
+    runs = []
+    for index, (status, ports) in enumerate([('ok', [22, 80]), ('failed', []), ('ok', [22, 443])]):
+        run = ScanRun(host_id=host.id, status=status, started_at=start + timedelta(hours=index),
+                      finished_at=start + timedelta(hours=index, seconds=30))
+        session.add(run)
+        session.commit()
+        for port in ports:
+            session.add(Service(host_id=host.id, scan_run_id=run.id, port=port, state='open', product='svc'))
+        session.commit()
+        runs.append(run)
+    return host, runs
+
+
+def test_command_scans_lists_runs_with_status_and_port_count():
+    session = make_session()
+    console = make_console(session)
+    host, runs = _seed_runs_for_history(session)
+
+    console.command_scans([])
+
+    assert _table_cell_values(console.console.print, 'Scan runs', 'Run') == [str(r.id) for r in reversed(runs)]
+    assert _table_cell_values(console.console.print, 'Scan runs', 'Status') == ['ok', 'failed', 'ok']
+    assert _table_cell_values(console.console.print, 'Scan runs', 'Services') == ['2', '0', '2']
+
+
+def test_command_scans_filtered_by_unknown_addr_shows_error():
+    session = make_session()
+    console = make_console(session)
+
+    console.command_scans(['203.0.113.99'])
+
+    printed = [str(call.args[0]) for call in console.console.print.call_args_list if call.args]
+    assert any('not found' in text for text in printed)
+
+
+def test_command_scan_diff_compares_the_last_two_finished_runs_ignoring_failed_ones():
+    session = make_session()
+    console = make_console(session)
+    _seed_runs_for_history(session)
+
+    console.command_scan(['diff', '192.0.2.70'])
+
+    changes = _table_cell_values(console.console.print, 'Scan diff', 'Change')
+    ports = _table_cell_values(console.console.print, 'Scan diff', 'Port')
+    assert sorted(zip(changes, ports)) == [('closed', '80'), ('opened', '443')]
+
+
+def test_command_scan_diff_needs_two_finished_runs():
+    session = make_session()
+    console = make_console(session)
+    host = Host(nome='alvo', addr='192.0.2.71')
+    session.add(host)
+    session.commit()
+
+    console.command_scan(['diff', '192.0.2.71'])
+
+    printed = [str(call.args[0]) for call in console.console.print.call_args_list if call.args]
+    assert any('at least two' in text for text in printed)
+
+
+def test_command_scan_diff_reports_when_nothing_changed():
+    session = make_session()
+    console = make_console(session)
+    from model.service_model import ScanRun
+
+    host = Host(nome='alvo', addr='192.0.2.72')
+    session.add(host)
+    session.commit()
+    for _ in range(2):
+        run = ScanRun(host_id=host.id, status='ok')
+        session.add(run)
+        session.commit()
+        session.add(Service(host_id=host.id, scan_run_id=run.id, port=22, state='open', product='svc'))
+        session.commit()
+
+    console.command_scan(['diff', '192.0.2.72'])
+
+    printed = [str(call.args[0]) for call in console.console.print.call_args_list if call.args]
+    assert any('No changes' in text for text in printed)

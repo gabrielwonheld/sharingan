@@ -5,3 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
+
+[tool.pytest.ini_options]
+# Without this, `db`/`model`/`phases`/etc. are only importable once some other
+# test module has already run `sys.path.insert(0, ...)` as a side effect
+# (test_services.py does this) — whether a given test file collects
+# successfully then depends on pytest's collection order. Setting pythonpath
+# explicitly (relative to this file, which pytest uses as rootdir) makes every
+# test module importable regardless of collection order or which subset of
+# tests is run.
+pythonpath = ["."]

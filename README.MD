@@ -8,7 +8,8 @@ Sharingan é uma ferramenta de monitoramento de rede desenvolvida em Python, cap
 - [Funcionalidades](#funcionalidades)
 - [Funcionalidades futuras](#funcionalidades-futuras)
 - [Instalação](#instalação)
-- [Como Usar](#como-usar)
+- [Como Rodar (Console Interativo)](#como-rodar-console-interativo)
+- [Como Usar (CLI legada)](#como-usar)
   - [Monitorar Serviços](#monitorar-serviços)
   - [Spider (htmlparser)](#função-spider)
 - [Contribuição](#contribuição)
@@ -36,20 +37,51 @@ cd sharingan
 
 ```
 
-Certifique-se de que o Python esteja instalado corretamente na sua máquina. O projeto foi desenvolvido em Python versão 3.12.7
+Certifique-se de que o Python esteja instalado corretamente na sua máquina (versão >= 3.12). O gerenciador de dependências do projeto é o [`uv`](https://docs.astral.sh/uv/), que precisa estar instalado separadamente (`curl -LsSf https://astral.sh/uv/install.sh | sh` ou `pipx install uv`).
+
+Com o `uv` instalado, instale as dependências do projeto a partir da raiz do repositório:
+
+```
+uv sync
+```
+
+## Como Rodar (Console Interativo)
+
+Este é o modo suportado atualmente para rodar o Sharingan no terminal: um console interativo estilo `msfconsole`, com comandos como `help`, `whois`, `scan`, `hosts`, `services`, `vulns`, `set`, `options`.
+
+A partir da raiz do repositório, com as dependências já instaladas (`uv sync`):
+
+```
+uv run python src_sharingan/sharingan_repl.py
+```
+
+Isso abre o prompt `Sharingan >`. Digite `help` para ver os comandos disponíveis, ou `exit`/`quit` para sair.
+
+```
+Sharingan Advanced Enum Tool
+Type 'help' to display available commands.
+Sharingan >
+```
+
+Observações:
+- O comando `scan` orquestra ferramentas externas (`rustscan`, `nmap`, `searchsploit`) — elas não são pacotes Python, precisam estar no `PATH` do sistema. Se alguma faltar, o console oferece instalar automaticamente quando possível (veja o `CLAUDE.md` do projeto para detalhes).
+- Os demais comandos (`whois`, `hosts`, `services`, `vulns`, `set`, `options`) não dependem de nenhuma ferramenta externa.
+- Não existe mais um arquivo `sharingan.py` na raiz do projeto — esse era o nome de um script antigo (veja a seção legada abaixo). O ponto de entrada atual é `src_sharingan/sharingan_repl.py`.
 
 ## Como Usar
+> **Nota:** a seção abaixo documenta a CLI legada (`src_sharingan/sharingan`, baseada em `argparse`), mantida por compatibilidade mas **não é mais o modo recomendado** de usar o projeto. Para o uso atual, veja [Como Rodar (Console Interativo)](#como-rodar-console-interativo) acima.
+
 A ferramenta pode ser usada diretamente via linha de comando com vários parâmetros opcionais:
 
 ### Monitorar Serviços
 **Para listar hosts ativos**
 ```
-python sharingan --monitor -f inventory.yaml --active
+uv run python src_sharingan/sharingan --monitor -f inventory.yaml --active
 ```
 **Para listar hosts inativos**
 
 ```
-python sharingan --monitor -f inventory.yaml --inactive
+uv run python src_sharingan/sharingan --monitor -f inventory.yaml --inactive
 ```
 **Ex:**
 ``` 
@@ -124,7 +156,7 @@ e-mails de usuários, e futuramente mais algumas funcionalidades.
 **Função Spider**
 
 ```
-python.exe .\sharingan --spider -u http://exemplo.com -d exemplo -o saida.txt
+uv run python src_sharingan/sharingan --spider -u http://exemplo.com -d exemplo -o saida.txt
 
 ```
 **Onde:**
@@ -168,7 +200,7 @@ http://exemplo.com#services
 ### Para mais opções, use o comando de ajuda:
 
 ```
-python sharingan.py --help
+uv run python src_sharingan/sharingan --help
 
 ```
 ## Contribuição
