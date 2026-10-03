@@ -107,7 +107,7 @@ class InteractiveConsole:
         # standalone, outside the console, where it comes out fine). This wraps
         # every print made during the loop so prompt_toolkit redraws around it
         # safely instead of the two colliding.
-        with patch_stdout():
+        with patch_stdout(raw=True):
             while True:
                 try:
                     text = self.prompt_session.prompt([('class:prompt', 'Sharingan > ')])

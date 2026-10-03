@@ -1523,6 +1523,8 @@ def test_run_wraps_the_loop_in_patch_stdout_so_rich_tables_do_not_get_corrupted(
 
     console.run()
 
-    patch_stdout_fn.assert_called_once()
+    # raw=True is required: by default the proxy escapes ESC bytes, so every
+    # `rich` color/border sequence would show up literally as `?[36m`.
+    patch_stdout_fn.assert_called_once_with(raw=True)
     patch_stdout_fn.return_value.__enter__.assert_called_once()
     patch_stdout_fn.return_value.__exit__.assert_called_once()
