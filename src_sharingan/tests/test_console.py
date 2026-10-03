@@ -1503,3 +1503,26 @@ def test_command_fuzz_rolls_back_the_session_when_it_fails(mocker):
     console.command_fuzz(['alvo', 'http://example.com'])
 
     session.rollback.assert_called_once()
+
+
+def test_run_wraps_the_loop_in_patch_stdout_so_rich_tables_do_not_get_corrupted(mocker):
+    """Real bug reported by the user: a wide `rich` table (the `fuzz` Findings
+    table) came out with its left border missing on every data row. Reproduced
+    the exact same table standalone (outside the console) and it rendered
+    correctly — so the corruption isn't in how the table is built, it's from
+    `rich.Console.print` writing to stdout while `prompt_toolkit`'s
+    PromptSession is also managing the terminal's cursor/redraw between
+    prompts, with neither library aware of the other's writes. prompt_toolkit's
+    own `patch_stdout()` exists specifically to make prints safe during an
+    active prompt session."""
+    console = InteractiveConsole.__new__(InteractiveConsole)
+    console.console = MagicMock()
+    console.prompt_session = MagicMock()
+    console.prompt_session.prompt.side_effect = EOFError()
+    patch_stdout_fn = mocker.patch('view.console.patch_stdout')
+
+    console.run()
+
+    patch_stdout_fn.assert_called_once()
+    patch_stdout_fn.return_value.__enter__.assert_called_once()
+    patch_stdout_fn.return_value.__exit__.assert_called_once()

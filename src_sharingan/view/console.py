@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from rich.console import Console as RichConsole
 from rich.prompt import Confirm
@@ -96,14 +97,25 @@ class InteractiveConsole:
     def run(self):
         self.print_welcome()
 
-        while True:
-            try:
-                text = self.prompt_session.prompt([('class:prompt', 'Sharingan > ')])
-                self.process_command(text)
-            except KeyboardInterrupt:
-                continue
-            except EOFError:
-                break
+        # Every `command_*` prints with `rich.Console.print`, straight to stdout,
+        # while `PromptSession.prompt` separately manages the terminal's cursor
+        # and redraws between prompts — neither library knows about the other's
+        # writes. Without `patch_stdout()`, a wide/multi-row `rich` table (first
+        # seen with the `fuzz` command's "Findings" table) can come out with its
+        # left border silently missing on every data row, even though the table
+        # itself is built correctly (confirmed by rendering the exact same table
+        # standalone, outside the console, where it comes out fine). This wraps
+        # every print made during the loop so prompt_toolkit redraws around it
+        # safely instead of the two colliding.
+        with patch_stdout():
+            while True:
+                try:
+                    text = self.prompt_session.prompt([('class:prompt', 'Sharingan > ')])
+                    self.process_command(text)
+                except KeyboardInterrupt:
+                    continue
+                except EOFError:
+                    break
 
     def process_command(self, text: str):
         parts = text.strip().split()
