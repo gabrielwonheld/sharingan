@@ -31,17 +31,51 @@ def make_session():
 
 def test_command_whois_parses_domain_correctly(mocker):
     """Before the fix, `command_whois` read `args[1]` — with `whois example.com`
-    (args = ['example.com']) that raised an IndexError."""
+    (args = ['example.com']) that raised an IndexError. Now it goes through
+    WhoisPhase, like `recon` goes through ReconPhase."""
     session = make_session()
     console = make_console(session)
 
     fake_record = SimpleNamespace(registrar='Test Registrar', creation_date=None, expiration_date=None)
-    mock_service = mocker.patch('view.console.WhoisService')
-    mock_service.return_value.perform_whois.return_value = fake_record
+    mock_phase_cls = mocker.patch('view.console.WhoisPhase')
+    mock_phase_cls.return_value.run.return_value = fake_record
 
     console.command_whois(['example.com'])
 
-    mock_service.return_value.perform_whois.assert_called_once_with('example.com')
+    mock_phase_cls.return_value.run.assert_called_once_with(
+        domain='example.com', on_progress=console._report_progress
+    )
+    assert _table_cell_values(console.console.print, 'WHOIS Result: example.com', 'Value')[0] == 'Test Registrar'
+
+
+def test_command_whois_requires_a_domain():
+    console = make_console(make_session())
+
+    console.command_whois([])
+
+    assert any('Usage: whois' in str(c.args[0]) for c in console.console.print.call_args_list)
+
+
+def test_command_whois_blocked_when_out_of_scope(mocker):
+    console = make_console(make_session())
+    console.command_scope(['add', 'example.com'])
+    mock_phase_cls = mocker.patch('view.console.WhoisPhase')
+
+    console.command_whois(['evil.net'])
+
+    mock_phase_cls.assert_not_called()
+    assert any('out of scope' in str(c.args[0]) for c in console.console.print.call_args_list)
+
+
+def test_command_whois_rolls_back_the_session_when_it_fails(mocker):
+    session = MagicMock()
+    console = make_console(session)
+    mocker.patch('view.console.WhoisPhase').return_value.run.side_effect = ValueError('boom')
+
+    console.command_whois(['example.com'])
+
+    session.rollback.assert_called_once()
+    assert any('Error fetching whois data' in str(c.args[0]) for c in console.console.print.call_args_list)
 
 
 def test_command_scan_runs_scan_phase_and_displays_results(mocker):
@@ -1528,3 +1562,106 @@ def test_run_wraps_the_loop_in_patch_stdout_so_rich_tables_do_not_get_corrupted(
     patch_stdout_fn.assert_called_once_with(raw=True)
     patch_stdout_fn.return_value.__enter__.assert_called_once()
     patch_stdout_fn.return_value.__exit__.assert_called_once()
+
+
+# --- crawl (SpiderPhase) -------------------------------------------------
+
+def _fake_spider_phase(mocker, host, pages=(), new_pages=(), emails=None, new_emails=()):
+    from phases.web.tools.crawler import CrawledUrl
+
+    mock_phase_cls = mocker.patch('view.console.SpiderPhase')
+    fake_phase = mock_phase_cls.return_value
+    fake_phase.run.return_value = host
+    fake_phase.last_all_pages = [CrawledUrl(*p) for p in pages]
+    fake_phase.last_new_pages = list(new_pages)
+    fake_phase.last_all_emails = emails or {}
+    fake_phase.last_new_emails = list(new_emails)
+    return mock_phase_cls
+
+
+def test_command_crawl_requires_name_and_url():
+    console = _scope_console()
+
+    console.command_crawl(['alvo'])
+
+    assert any('Usage: crawl' in t for t in _printed(console))
+
+
+def test_command_crawl_requires_a_scheme_and_host():
+    console = _scope_console()
+
+    console.command_crawl(['alvo', 'example.com'])
+
+    assert any('scheme and host' in t for t in _printed(console))
+
+
+def test_command_crawl_blocked_when_out_of_scope(mocker):
+    console = _scope_console()
+    console.command_scope(['add', 'example.com'])
+    mock_phase_cls = mocker.patch('view.console.SpiderPhase')
+
+    console.command_crawl(['alvo', 'http://evil.net/'])
+
+    mock_phase_cls.assert_not_called()
+    assert any('out of scope' in t for t in _printed(console))
+
+
+def test_command_crawl_passes_session_options_and_a_scope_check(mocker):
+    session = make_session()
+    console = make_console(session)
+    console.command_set(['spider_max_depth', '2'])
+    console.command_set(['spider_max_pages', '30'])
+    console.command_set(['spider_delay', '1.5'])
+    console.command_set(['user_agent', 'Custom/1.0'])
+    console.command_scope(['exclude', 'admin.example.com'])
+    host = Host(nome='alvo', addr='example.com')
+    session.add(host)
+    session.commit()
+    mock_phase_cls = _fake_spider_phase(mocker, host)
+
+    console.command_crawl(['alvo', 'http://example.com/'])
+
+    kwargs = mock_phase_cls.return_value.run.call_args.kwargs
+    assert (kwargs['name'], kwargs['url']) == ('alvo', 'http://example.com/')
+    assert (kwargs['max_depth'], kwargs['max_pages'], kwargs['delay'], kwargs['user_agent']) == (
+        2, 30, 1.5, 'Custom/1.0',
+    )
+    assert kwargs['on_progress'] == console._report_progress
+    # the callback consults the same scope rules `scan`/`recon` use
+    assert kwargs['scope_allows']('www.example.com') is True
+    assert kwargs['scope_allows']('admin.example.com') is False
+
+
+def test_command_crawl_shows_pages_and_emails_marking_the_new_ones(mocker):
+    session = make_session()
+    console = make_console(session)
+    host = Host(nome='alvo', addr='example.com')
+    session.add(host)
+    session.commit()
+    _fake_spider_phase(
+        mocker, host,
+        pages=[('http://example.com/', 200, 0), ('http://example.com/a', 404, 1)],
+        new_pages=['http://example.com/a'],
+        emails={'admin@example.com': 'http://example.com/'},
+        new_emails=['admin@example.com'],
+    )
+
+    console.command_crawl(['alvo', 'http://example.com/'])
+
+    urls = _table_cell_values(console.console.print, 'Pages', 'URL')
+    status = _table_cell_values(console.console.print, 'Pages', 'Status')
+    assert sorted(zip(urls, status)) == [('http://example.com/', 'known'), ('http://example.com/a', 'new')]
+    assert _table_cell_values(console.console.print, 'Emails', 'Email') == ['admin@example.com']
+    assert _table_cell_values(console.console.print, 'Emails', 'Status') == ['new']
+
+
+def test_command_crawl_rolls_back_the_session_when_it_fails(mocker):
+    session = MagicMock()
+    console = make_console(session)
+    mocker.patch('view.console.SpiderPhase').return_value.run.side_effect = ValueError('boom')
+
+    console.command_crawl(['alvo', 'http://example.com/'])
+
+    session.rollback.assert_called_once()
+    assert any('Error during crawl' in t for t in _printed(console))
+

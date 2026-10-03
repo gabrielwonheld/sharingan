@@ -193,3 +193,21 @@ def test_run_lightweight_migrations_drops_unique_constraint_on_hosts_nome():
     with pytest.raises(IntegrityError):
         with engine.begin() as conn:
             conn.execute(text("INSERT INTO hosts (nome, addr) VALUES ('x', '10.0.0.1')"))
+
+
+def test_run_lightweight_migrations_adds_whois_host_id_on_legacy_schema():
+    engine = create_engine('sqlite:///:memory:')
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE whois_records (id INTEGER PRIMARY KEY, domain VARCHAR(255) NOT NULL, "
+            "raw_data TEXT, registrar VARCHAR(255), creation_date DATETIME, "
+            "expiration_date DATETIME, created_at DATETIME)"
+        ))
+        conn.execute(text("INSERT INTO whois_records (id, domain) VALUES (1, 'example.com')"))
+
+    run_lightweight_migrations(engine)
+
+    from sqlalchemy import inspect
+    assert 'host_id' in {c['name'] for c in inspect(engine).get_columns('whois_records')}
+    with engine.begin() as conn:
+        assert conn.execute(text('SELECT host_id FROM whois_records')).scalar() is None

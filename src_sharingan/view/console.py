@@ -14,8 +14,9 @@ from core.context import SessionContext
 from core.scope import decide, parse_scope_value
 from phases.fuzz.fuzz_phase import FuzzPhase
 from phases.recon.recon_phase import ReconPhase
+from phases.recon.whois_phase import WhoisPhase
 from phases.scan.scan_diff import diff_scan_runs
-from services.whois_service import WhoisService
+from phases.web.spider_phase import SpiderPhase
 from model.host import Host
 from model.scope_model import ScopeRule
 from model.service_model import ScanRun, Service, Vulnerability, current_services_filter
@@ -68,6 +69,7 @@ class InteractiveConsole:
             'recon': self.command_recon,
             'subdomains': self.command_subdomains,
             'fuzz': self.command_fuzz,
+            'crawl': self.command_crawl,
             'hosts': self.command_hosts,
             'services': self.command_services,
             'vulns': self.command_vulns,
@@ -78,7 +80,7 @@ class InteractiveConsole:
 
         self.completer = WordCompleter([
             'whois', 'scan', 'scans', 'recon', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
-            'hosts', 'services', 'vulns', 'subdomains', 'fuzz',
+            'hosts', 'services', 'vulns', 'subdomains', 'fuzz', 'crawl',
         ], ignore_case=True)
 
         self.style = Style.from_dict({
@@ -138,6 +140,8 @@ class InteractiveConsole:
             return
 
         domain = args[0]
+        if not self._target_allowed_by_scope(domain):
+            return
         self.handle_whois(domain)
 
     def command_set(self, args):
@@ -428,6 +432,74 @@ class InteractiveConsole:
             f"[*] {len(fuzz_phase.last_all_matches)} finding(s) total, {len(new)} new this run."
         )
 
+    def _scope_allows(self, hostname: str) -> bool:
+        """Silent scope check (no printing), for phases that re-check every
+        hostname they'd touch mid-run — e.g. each link `crawl` follows."""
+        rules = [(r.kind, r.value, r.allow) for r in self.session_db.query(ScopeRule)]
+        return decide(hostname, rules).allowed
+
+    def command_crawl(self, args):
+        """`crawl <name> <url>`: bounded crawl (pages + emails). Sends real HTTP
+        requests, so scope is checked on the start host first and again on every
+        host the crawl would follow a link to."""
+        if len(args) < 2:
+            self.console.print("[red]Usage: crawl <name> <url>[/red]")
+            return
+
+        name, url = args[0], args[1]
+        hostname = urlparse(url).hostname
+        if not hostname:
+            self.console.print("[red]URL must include a scheme and host, e.g. http://example.com/[/red]")
+            return
+        if not self._target_allowed_by_scope(hostname):
+            return
+
+        spider_phase = SpiderPhase(self.session_db)
+        try:
+            host = spider_phase.run(
+                name=name, url=url,
+                max_depth=self.context.get('spider_max_depth'),
+                max_pages=self.context.get('spider_max_pages'),
+                delay=self.context.get('spider_delay'),
+                user_agent=self.context.get('user_agent'),
+                scope_allows=self._scope_allows,
+                on_progress=self._report_progress,
+            )
+        except Exception as e:
+            self.session_db.rollback()
+            self.console.print(f"[red]Error during crawl: {e}[/red]")
+            return
+
+        new_pages = set(spider_phase.last_new_pages)
+        table = Table(title="Pages", caption=f"{name} ({host.addr})")
+        table.add_column("URL", style="cyan")
+        table.add_column("Code", justify="right")
+        table.add_column("Depth", justify="right")
+        table.add_column("Status", style="white")
+        for page in spider_phase.last_all_pages:
+            table.add_row(
+                page.url, str(page.status_code), str(page.depth),
+                "new" if page.url in new_pages else "known",
+            )
+        self.console.print(table)
+
+        if spider_phase.last_all_emails:
+            new_emails = set(spider_phase.last_new_emails)
+            emails_table = Table(title="Emails", caption=f"{name} ({host.addr})")
+            emails_table.add_column("Email", style="cyan")
+            emails_table.add_column("Found on", style="white")
+            emails_table.add_column("Status", style="white")
+            for email, source in sorted(spider_phase.last_all_emails.items()):
+                emails_table.add_row(email, source, "new" if email in new_emails else "known")
+            self.console.print(emails_table)
+
+        self.console.print(
+            f"[*] {len(spider_phase.last_all_pages)} page(s), "
+            f"{len(spider_phase.last_new_pages)} new this run; "
+            f"{len(spider_phase.last_all_emails)} email(s), "
+            f"{len(spider_phase.last_new_emails)} new."
+        )
+
     def command_subdomains(self, args):
         """Lists/deletes `Subdomain` rows found by `recon`. Same shape as
         `services`/`vulns`: no argument lists everything, `-d <name|addr>`
@@ -677,24 +749,25 @@ class InteractiveConsole:
         self.print_help(args)
 
     def handle_whois(self, domain: str):
-        self.console.print(f"[*] Running whois on [bold cyan]{domain}[/bold cyan]...")
-        whois_service = WhoisService(self.session_db)
+        whois_phase = WhoisPhase(self.session_db)
 
         try:
-            record = whois_service.perform_whois(domain)
-            table = Table(title=f"WHOIS Result: {domain}")
-            table.add_column("Property", justify="right", style="cyan")
-            table.add_column("Value", style="white")
-
-            table.add_row("Registrar", str(record.registrar))
-            table.add_row("Creation Date", str(record.creation_date))
-            table.add_row("Expiration Date", str(record.expiration_date))
-
-            self.console.print(table)
-            self.console.print("[green]Saved to database successfully![/green]")
-
+            record = whois_phase.run(domain=domain, on_progress=self._report_progress)
         except Exception as e:
+            self.session_db.rollback()
             self.console.print(f"[red]Error fetching whois data: {e}[/red]")
+            return
+
+        table = Table(title=f"WHOIS Result: {domain}")
+        table.add_column("Property", justify="right", style="cyan")
+        table.add_column("Value", style="white")
+
+        table.add_row("Registrar", str(record.registrar))
+        table.add_row("Creation Date", str(record.creation_date))
+        table.add_row("Expiration Date", str(record.expiration_date))
+
+        self.console.print(table)
+        self.console.print("[green]Saved to database successfully![/green]")
 
     def _ensure_tool_available(self, tool_name: str, tool_cls, required: bool) -> bool:
         """Makes sure (by asking the user) that an external tool is available.
@@ -900,18 +973,19 @@ class InteractiveConsole:
         table = Table(title="Available Commands")
         table.add_column("Command", style="cyan")
         table.add_column("Description", style="white")
-        table.add_row("whois <domain>", "Run a whois query against the domain and save it.")
+        table.add_row("whois <domain>", "WHOIS lookup of a domain (scope-checked); saved and linked to its host.")
         table.add_row("scan <name> <ip/host>", "Rustscan + nmap -sV + searchsploit; save to DB.")
         table.add_row("scope [add|exclude|remove <value>]", "Show or edit the scope (domain, IP or CIDR). Scans outside it are blocked.")
         table.add_row("scans [name|addr]", "List scan runs (history), optionally for one host.")
         table.add_row("recon <name> <domain>", "Passive subdomain discovery (subfinder); shows new vs. known.")
         table.add_row("subdomains [name|addr] [-d <name|addr|all>]", "List subdomains found by recon, or delete them.")
         table.add_row("fuzz <name> <url>", "Directory/file enumeration (gobuster); needs 'fuzz_wordlist' set.")
+        table.add_row("crawl <name> <url>", "Bounded crawl of a site: pages and emails; scope-checked, see spider_* options.")
         table.add_row("scan diff <name|addr>", "Compare the host's last two finished scans.")
         table.add_row("hosts [-d <name|addr|all>]", "List hosts, or delete one host (cascades) / all hosts.")
         table.add_row("services [name|addr] [-d <name|addr|all>]", "List services (optionally by host), or delete them.")
         table.add_row("vulns [name|addr] [-d <name|addr|all>]", "List vulnerabilities (optionally by host), or delete them.")
-        table.add_row("set <option> <value>", "Set a session option (rustscan_batch, rustscan_timeout, user_agent).")
+        table.add_row("set <option> <value>", "Set a session option (see 'options' for the full list).")
         table.add_row("unset <option>", "Reset a session option to its default.")
         table.add_row("options", "Show session options, their defaults and what they do.")
         table.add_row("clear", "Clear the terminal screen.")

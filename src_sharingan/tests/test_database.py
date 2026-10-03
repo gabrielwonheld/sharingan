@@ -62,3 +62,17 @@ def test_init_db_creates_the_scope_rules_table(tmp_path, monkeypatch):
     database.init_db()
 
     assert 'scope_rules' in inspect(engine).get_table_names()
+
+
+def test_init_db_creates_the_crawl_tables(tmp_path, monkeypatch):
+    from sqlalchemy import create_engine, inspect
+
+    import db.database as database
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'x.db'}")
+    monkeypatch.setattr(database, 'engine', engine)
+
+    database.init_db()
+
+    tables = inspect(engine).get_table_names()
+    assert 'crawled_pages' in tables and 'harvested_emails' in tables

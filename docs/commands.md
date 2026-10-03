@@ -15,8 +15,11 @@ Prints the command table (name, syntax, one-line description).
 ## `whois <domain>`
 
 Runs a WHOIS lookup against `domain` and prints registrar, creation date and
-expiration date. The result is saved to the database
-(`WhoisRecord`). Doesn't require any external tool.
+expiration date. The domain must pass the [scope](#scope-addexcluderemove-value)
+check. The result is saved (`WhoisRecord`) and linked to the host for that
+domain — the same host `scan` and `recon` use — so `hosts -d` removes it too.
+Each lookup stores a new record, so changes over time stay visible. Only talks
+to public WHOIS servers, never to the target. Doesn't require any external tool.
 
 ```text
 Sharingan > whois example.com
@@ -183,6 +186,29 @@ Sharingan > fuzz myserver http://example.com
 Sharingan > fuzz myserver http://example.com
 [*] Enumerating directories/files (gobuster dir -u http://example.com)...
 ```
+
+## `crawl <name> <url>`
+
+Bounded crawl of a web site, collecting the pages it reaches and any email
+addresses found in them. Sends real HTTP requests, so it is opt-in and never
+part of `scan`.
+
+```text
+Sharingan > crawl myserver http://example.com/
+```
+
+- The start host is checked against the [scope](#scope-addexcluderemove-value)
+  first, and **every host a link points to is checked again** before it's
+  requested. Independently of scope, the crawl never leaves the start site (its
+  host or subdomains) — even with no scope defined.
+- Limits come from the `spider_max_depth`, `spider_max_pages` and
+  `spider_delay` [session options](options.md); requests carry the
+  `user_agent` option.
+- Redirects aren't followed blindly: a `Location` is treated like any other
+  link, so an out-of-scope redirect is never requested.
+- Shows a **Pages** table (URL, code, depth) and an **Emails** table (address,
+  first page it appeared on), each row marked `new` or `known` against earlier
+  crawls of the same host.
 
 ## `hosts [-d <name|addr|all>]`
 

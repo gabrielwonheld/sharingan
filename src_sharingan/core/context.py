@@ -12,6 +12,16 @@ def _positive_int(raw: str) -> int:
     return value
 
 
+def _non_negative_float(raw: str) -> float:
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(f"'{raw}' is not a number.") from None
+    if value < 0:
+        raise ValueError('must not be negative.')
+    return value
+
+
 def _non_empty_text(raw: str) -> str:
     value = raw.strip()
     if not value:
@@ -46,7 +56,7 @@ OPTIONS: dict[str, OptionSpec] = {
     ),
     'user_agent': OptionSpec(
         'Sharingan', _non_empty_text,
-        'User-Agent for HTTP requests (used by the web phase, not by port scans).',
+        "User-Agent for HTTP requests ('crawl' sends it; port scans don't use HTTP).",
     ),
     'fuzz_wordlist': OptionSpec(
         '', _optional_text,
@@ -59,6 +69,18 @@ OPTIONS: dict[str, OptionSpec] = {
     'fuzz_threads': OptionSpec(
         10, _positive_int,
         "Concurrent threads 'fuzz' passes to gobuster (-t).",
+    ),
+    'spider_max_depth': OptionSpec(
+        3, _positive_int,
+        "How many links deep 'crawl' follows from the start URL.",
+    ),
+    'spider_max_pages': OptionSpec(
+        100, _positive_int,
+        "Most pages 'crawl' fetches in one run.",
+    ),
+    'spider_delay': OptionSpec(
+        0.5, _non_negative_float,
+        "Seconds 'crawl' waits between requests (0 = no pause).",
     ),
 }
 

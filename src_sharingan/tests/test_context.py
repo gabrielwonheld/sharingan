@@ -67,6 +67,7 @@ def test_rows_lists_every_option_with_value_default_and_description():
     assert set(rows) == {
         'rustscan_batch', 'rustscan_timeout', 'user_agent',
         'fuzz_wordlist', 'fuzz_extensions', 'fuzz_threads',
+        'spider_max_depth', 'spider_max_pages', 'spider_delay',
     }
 
 
@@ -94,3 +95,33 @@ def test_fuzz_threads_rejects_invalid_values():
     with pytest.raises(ValueError):
         ctx.set('fuzz_threads', '0')
     assert ctx.get('fuzz_threads') == 10
+
+
+def test_spider_options_have_sane_defaults():
+    ctx = SessionContext()
+
+    assert ctx.get('spider_max_depth') == 3
+    assert ctx.get('spider_max_pages') == 100
+    assert ctx.get('spider_delay') == 0.5
+
+
+def test_spider_delay_accepts_zero_and_decimals_but_not_negatives_or_text():
+    import pytest
+
+    ctx = SessionContext()
+    ctx.set('spider_delay', '0')
+    assert ctx.get('spider_delay') == 0.0
+    ctx.set('spider_delay', '1.25')
+    assert ctx.get('spider_delay') == 1.25
+    for bad in ('-1', 'fast'):
+        with pytest.raises(ValueError):
+            ctx.set('spider_delay', bad)
+
+
+def test_spider_depth_and_pages_must_be_positive_integers():
+    import pytest
+
+    ctx = SessionContext()
+    for name in ('spider_max_depth', 'spider_max_pages'):
+        with pytest.raises(ValueError):
+            ctx.set(name, '0')

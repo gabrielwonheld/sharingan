@@ -95,3 +95,8 @@ def run_lightweight_migrations(engine) -> None:
         'cve_codes': 'VARCHAR(255)',
         'verified': 'BOOLEAN',
     })
+    # `WhoisRecord.host_id` (2026-10-03): `whois` now runs through the Recon
+    # phase and links each record to the Host of the domain. NULL for old rows.
+    add_missing_columns(engine, 'whois_records', {
+        'host_id': 'INTEGER REFERENCES hosts(id)',
+    })

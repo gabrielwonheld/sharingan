@@ -9,11 +9,12 @@ class WhoisService:
     def __init__(self, db_session):
         self.session = db_session
 
-    def perform_whois(self, domain: str) -> WhoisRecord:
+    def perform_whois(self, domain: str, host_id: int | None = None) -> WhoisRecord:
         data = whois.whois(domain)
 
         record = WhoisRecord(
             domain=domain,
+            host_id=host_id,
             raw_data=self._safe_str(data),
             registrar=getattr(data, 'registrar', None),
             creation_date=self._first(getattr(data, 'creation_date', None)),

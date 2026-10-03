@@ -9,10 +9,13 @@ their defaults the next time you start Sharingan. The source of truth is the
 |---|---|---|---|---|
 | `rustscan_batch` | `4500` | positive integer | `scan` | Ports `rustscan` probes at once. Lower it for slow or filtered remote hosts. |
 | `rustscan_timeout` | `3000` | positive integer | `scan` | Milliseconds `rustscan` waits for each port. Raise it for distant hosts. |
-| `user_agent` | `Sharingan` | non-empty text | *(reserved)* | User-Agent for HTTP requests. Not consumed by any command yet — `scan`'s port discovery and fingerprinting (`rustscan`/`nmap`) make no HTTP requests at all, so setting it has no effect today. It's wired in ahead of the planned crawler (see `CLAUDE.md`'s pending-items list for the spider migration). |
+| `user_agent` | `Sharingan` | non-empty text | `crawl` | User-Agent sent on every HTTP request `crawl` makes. `scan`'s port discovery and fingerprinting (`rustscan`/`nmap`) make no HTTP requests, so it doesn't affect them. |
 | `fuzz_wordlist` | *(empty)* | text, empty allowed | `fuzz` | Path to the wordlist `fuzz` passes to `gobuster -w`. **Required** before `fuzz` will run — there's no universal default wordlist Sharingan can assume is on disk. |
 | `fuzz_extensions` | *(empty)* | text, empty allowed | `fuzz` | Comma-separated extensions passed to `gobuster -x`, e.g. `php,txt,bak`. Optional — leave unset to not filter by extension. |
 | `fuzz_threads` | `10` | positive integer | `fuzz` | Concurrent threads passed to `gobuster -t`. |
+| `spider_max_depth` | `3` | positive integer | `crawl` | How many links deep `crawl` follows from the start URL. |
+| `spider_max_pages` | `100` | positive integer | `crawl` | Most pages `crawl` fetches in one run. |
+| `spider_delay` | `0.5` | number >= 0 | `crawl` | Seconds `crawl` waits between requests (`0` = no pause). |
 
 ## Why change these
 
@@ -40,5 +43,5 @@ Invalid value for rustscan_batch: 'abc' is not a whole number.
 Sharingan > set rustscan_batch 0
 Invalid value for rustscan_batch: must be greater than zero.
 Sharingan > set nope 1
-Unknown option 'nope'. Valid options: rustscan_batch, rustscan_timeout, user_agent.
+Unknown option 'nope'. Valid options: rustscan_batch, rustscan_timeout, user_agent, fuzz_wordlist, ...
 ```
