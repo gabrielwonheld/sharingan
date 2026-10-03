@@ -5,7 +5,6 @@
 /src/pingnet.egg-info/*
 /src/test.py
 /202*.txt
-test*
 gpt*
 *__pycache__*
 *.db
