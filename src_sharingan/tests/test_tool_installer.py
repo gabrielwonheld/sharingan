@@ -121,3 +121,47 @@ def test_install_dispatches_subfinder():
 def test_manual_install_hint_mentions_subfinder_sources():
     hint = ToolInstaller.manual_install_hint('subfinder')
     assert 'projectdiscovery' in hint.lower()
+
+
+def test_install_gobuster_uses_apt_when_available():
+    """gobuster is packaged on Kali's apt (kali.org/tools/gobuster)."""
+    fake_result = MagicMock(returncode=0)
+    with patch('phases.scan.tools.installer.shutil.which', side_effect=which_only('apt-get')), \
+         patch('phases.scan.tools.installer.subprocess.run', return_value=fake_result) as mock_run:
+        assert ToolInstaller.install_gobuster() is True
+
+    assert mock_run.call_args[0][0] == ['sudo', 'apt-get', 'install', '-y', 'gobuster']
+
+
+def test_install_gobuster_falls_back_to_brew():
+    fake_result = MagicMock(returncode=0)
+    with patch('phases.scan.tools.installer.shutil.which', side_effect=which_only('brew')), \
+         patch('phases.scan.tools.installer.subprocess.run', return_value=fake_result) as mock_run:
+        assert ToolInstaller.install_gobuster() is True
+
+    assert mock_run.call_args[0][0] == ['brew', 'install', 'gobuster']
+
+
+def test_install_gobuster_falls_back_to_go_install_as_last_resort():
+    fake_result = MagicMock(returncode=0)
+    with patch('phases.scan.tools.installer.shutil.which', side_effect=which_only('go')), \
+         patch('phases.scan.tools.installer.subprocess.run', return_value=fake_result) as mock_run:
+        assert ToolInstaller.install_gobuster() is True
+
+    assert mock_run.call_args[0][0] == ['go', 'install', 'github.com/OJ/gobuster/v3@latest']
+
+
+def test_install_gobuster_returns_false_without_any_known_method():
+    with patch('phases.scan.tools.installer.shutil.which', return_value=None):
+        assert ToolInstaller.install_gobuster() is False
+
+
+def test_install_dispatches_gobuster():
+    with patch.object(ToolInstaller, 'install_gobuster', return_value=True) as mock_installer:
+        assert ToolInstaller.install('gobuster') is True
+    mock_installer.assert_called_once()
+
+
+def test_manual_install_hint_mentions_gobuster_sources():
+    hint = ToolInstaller.manual_install_hint('gobuster')
+    assert 'github.com/oj/gobuster' in hint.lower()

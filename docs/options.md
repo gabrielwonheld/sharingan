@@ -9,7 +9,10 @@ their defaults the next time you start Sharingan. The source of truth is the
 |---|---|---|---|---|
 | `rustscan_batch` | `4500` | positive integer | `scan` | Ports `rustscan` probes at once. Lower it for slow or filtered remote hosts. |
 | `rustscan_timeout` | `3000` | positive integer | `scan` | Milliseconds `rustscan` waits for each port. Raise it for distant hosts. |
-| `user_agent` | `Sharingan` | non-empty text | *(reserved)* | User-Agent for HTTP requests. Not consumed by any command yet — `scan`'s port discovery and fingerprinting (`rustscan`/`nmap`) make no HTTP requests at all, so setting it has no effect today. It's wired in ahead of the planned web phase (crawling, directory enumeration). |
+| `user_agent` | `Sharingan` | non-empty text | *(reserved)* | User-Agent for HTTP requests. Not consumed by any command yet — `scan`'s port discovery and fingerprinting (`rustscan`/`nmap`) make no HTTP requests at all, so setting it has no effect today. It's wired in ahead of the planned crawler (see `CLAUDE.md`'s pending-items list for the spider migration). |
+| `fuzz_wordlist` | *(empty)* | text, empty allowed | `fuzz` | Path to the wordlist `fuzz` passes to `gobuster -w`. **Required** before `fuzz` will run — there's no universal default wordlist Sharingan can assume is on disk. |
+| `fuzz_extensions` | *(empty)* | text, empty allowed | `fuzz` | Comma-separated extensions passed to `gobuster -x`, e.g. `php,txt,bak`. Optional — leave unset to not filter by extension. |
+| `fuzz_threads` | `10` | positive integer | `fuzz` | Concurrent threads passed to `gobuster -t`. |
 
 ## Why change these
 

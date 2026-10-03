@@ -64,4 +64,33 @@ def test_rows_lists_every_option_with_value_default_and_description():
 
     assert rows['rustscan_batch'][0] == '100' and rows['rustscan_batch'][1] == '4500'
     assert all(desc for _, _, desc in rows.values())
-    assert set(rows) == {'rustscan_batch', 'rustscan_timeout', 'user_agent'}
+    assert set(rows) == {
+        'rustscan_batch', 'rustscan_timeout', 'user_agent',
+        'fuzz_wordlist', 'fuzz_extensions', 'fuzz_threads',
+    }
+
+
+def test_fuzz_options_have_sane_defaults():
+    ctx = SessionContext()
+
+    assert ctx.get('fuzz_wordlist') == ''
+    assert ctx.get('fuzz_extensions') == ''
+    assert ctx.get('fuzz_threads') == 10
+
+
+def test_fuzz_wordlist_accepts_empty_value_unlike_user_agent():
+    ctx = SessionContext()
+
+    ctx.set('fuzz_wordlist', '/usr/share/seclists/Discovery/Web-Content/common.txt')
+    assert ctx.get('fuzz_wordlist') == '/usr/share/seclists/Discovery/Web-Content/common.txt'
+
+    ctx.unset('fuzz_wordlist')
+    assert ctx.get('fuzz_wordlist') == ''
+
+
+def test_fuzz_threads_rejects_invalid_values():
+    ctx = SessionContext()
+
+    with pytest.raises(ValueError):
+        ctx.set('fuzz_threads', '0')
+    assert ctx.get('fuzz_threads') == 10

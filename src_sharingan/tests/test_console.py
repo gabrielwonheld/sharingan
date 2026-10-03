@@ -1381,3 +1381,125 @@ def test_command_subdomains_delete_all_declined(mocker):
 
     from model.subdomain_model import Subdomain
     assert session.query(Subdomain).count() == 2
+
+
+def _fuzz_console():
+    console = _scope_console()
+    console.context.set('fuzz_wordlist', '/tmp/words.txt')
+    return console
+
+
+def test_command_fuzz_requires_name_and_url():
+    console = _fuzz_console()
+
+    console.command_fuzz(['alvo'])
+
+    assert any('Usage: fuzz' in t for t in _printed(console))
+
+
+def test_command_fuzz_requires_a_url_scheme():
+    console = _fuzz_console()
+
+    console.command_fuzz(['alvo', 'example.com/no-scheme'])
+
+    assert any('scheme' in t for t in _printed(console))
+
+
+def test_command_fuzz_requires_a_configured_wordlist(mocker):
+    console = _scope_console()  # fuzz_wordlist left unset
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+
+    console.command_fuzz(['alvo', 'http://example.com'])
+
+    mock_phase_cls.assert_not_called()
+    assert any('fuzz_wordlist' in t for t in _printed(console))
+
+
+def test_command_fuzz_blocked_when_out_of_scope(mocker):
+    console = _fuzz_console()
+    console.command_scope(['add', 'example.com'])
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+
+    console.command_fuzz(['alvo', 'http://evil.net/base'])
+
+    mock_phase_cls.assert_not_called()
+    assert any('out of scope' in t for t in _printed(console))
+
+
+def test_command_fuzz_reports_missing_tool_without_crashing(mocker):
+    console = _fuzz_console()
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+    mock_phase_cls.return_value.gobuster = _NeverAvailable
+    mocker.patch('view.console.Confirm.ask', return_value=False)
+
+    console.command_fuzz(['alvo', 'http://example.com'])
+
+    mock_phase_cls.return_value.run.assert_not_called()
+    assert any('gobuster is still unavailable' in t for t in _printed(console))
+
+
+def test_command_fuzz_shows_findings_marking_the_new_ones(mocker):
+    from phases.fuzz.tools.gobuster_tool import FuzzMatch
+
+    console = _fuzz_console()
+    host = Host(nome='alvo', addr='example.com')
+    console.session_db.add(host)
+    console.session_db.commit()
+
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+    fake_phase = mock_phase_cls.return_value
+    fake_phase.gobuster = _AlwaysAvailable
+    fake_phase.run.return_value = host
+    fake_phase.last_new_paths = ['/secret']
+    fake_phase.last_all_matches = [
+        FuzzMatch(path='/admin', status_code=301, size=169, redirect='http://example.com/admin/'),
+        FuzzMatch(path='/secret', status_code=200, size=1, redirect=None),
+    ]
+
+    console.command_fuzz(['alvo', 'http://example.com'])
+
+    paths = _table_cell_values(console.console.print, 'Findings', 'Path')
+    status = _table_cell_values(console.console.print, 'Findings', 'Status')
+    assert sorted(zip(paths, status)) == [('/admin', 'known'), ('/secret', 'new')]
+    mock_phase_cls.return_value.run.assert_called_once_with(
+        name='alvo', url='http://example.com', wordlist='/tmp/words.txt',
+        extensions=None, threads=10, status_codes=None,
+        on_progress=console._report_progress,
+    )
+
+
+def test_command_fuzz_passes_configured_extensions_and_threads(mocker):
+    console = _fuzz_console()
+    console.context.set('fuzz_extensions', 'php,bak')
+    console.context.set('fuzz_threads', '50')
+    host = Host(nome='alvo', addr='example.com')
+    console.session_db.add(host)
+    console.session_db.commit()
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+    fake_phase = mock_phase_cls.return_value
+    fake_phase.gobuster = _AlwaysAvailable
+    fake_phase.run.return_value = host
+    fake_phase.last_new_paths = []
+    fake_phase.last_all_matches = []
+
+    console.command_fuzz(['alvo', 'http://example.com'])
+
+    mock_phase_cls.return_value.run.assert_called_once_with(
+        name='alvo', url='http://example.com', wordlist='/tmp/words.txt',
+        extensions='php,bak', threads=50, status_codes=None,
+        on_progress=console._report_progress,
+    )
+
+
+def test_command_fuzz_rolls_back_the_session_when_it_fails(mocker):
+    session = MagicMock()
+    console = make_console(session)
+    console.context = SessionContext()
+    console.context.set('fuzz_wordlist', '/tmp/words.txt')
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+    mock_phase_cls.return_value.gobuster = _AlwaysAvailable
+    mock_phase_cls.return_value.run.side_effect = ValueError('boom')
+
+    console.command_fuzz(['alvo', 'http://example.com'])
+
+    session.rollback.assert_called_once()

@@ -30,6 +30,7 @@ def init_db():
     from model.scope_model import ScopeRule
     from model.service_model import ScanRun, Service, Vulnerability, ExploitMatch
     from model.subdomain_model import Subdomain
+    from model.finding_model import Finding
     from db.migrations import run_lightweight_migrations
     Base.metadata.create_all(bind=engine)
     # `create_all()` only creates tables that don't exist yet — it never alters an

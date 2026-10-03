@@ -19,6 +19,13 @@ def _non_empty_text(raw: str) -> str:
     return value
 
 
+def _optional_text(raw: str) -> str:
+    # Unlike `_non_empty_text`, an empty value is valid here: it means
+    # "not configured yet" (e.g. `fuzz_wordlist` has no sane universal
+    # default — there's no wordlist Sharingan can assume is on disk).
+    return raw.strip()
+
+
 @dataclass(frozen=True)
 class OptionSpec:
     default: object
@@ -40,6 +47,18 @@ OPTIONS: dict[str, OptionSpec] = {
     'user_agent': OptionSpec(
         'Sharingan', _non_empty_text,
         'User-Agent for HTTP requests (used by the web phase, not by port scans).',
+    ),
+    'fuzz_wordlist': OptionSpec(
+        '', _optional_text,
+        "Path to the wordlist 'fuzz' passes to gobuster (-w). Required before running fuzz.",
+    ),
+    'fuzz_extensions': OptionSpec(
+        '', _optional_text,
+        "Comma-separated extensions 'fuzz' passes to gobuster (-x), e.g. 'php,txt,bak'. Optional.",
+    ),
+    'fuzz_threads': OptionSpec(
+        10, _positive_int,
+        "Concurrent threads 'fuzz' passes to gobuster (-t).",
     ),
 }
 

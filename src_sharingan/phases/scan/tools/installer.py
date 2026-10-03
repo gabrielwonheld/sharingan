@@ -82,12 +82,26 @@ class ToolInstaller:
         return False
 
     @classmethod
+    def install_gobuster(cls) -> bool:
+        # Packaged on Kali's apt (kali.org/tools/gobuster) and on Homebrew;
+        # `go install` is gobuster's own documented method everywhere else —
+        # same risk tier as rustscan's `cargo install`/subfinder's `go install`.
+        if shutil.which('apt-get'):
+            return cls._run(['sudo', 'apt-get', 'install', '-y', 'gobuster'])
+        if shutil.which('brew'):
+            return cls._run(['brew', 'install', 'gobuster'])
+        if shutil.which('go'):
+            return cls._run(['go', 'install', 'github.com/OJ/gobuster/v3@latest'])
+        return False
+
+    @classmethod
     def install(cls, tool_name: str) -> bool:
         installers = {
             'nmap': cls.install_nmap,
             'searchsploit': cls.install_searchsploit,
             'rustscan': cls.install_rustscan,
             'subfinder': cls.install_subfinder,
+            'gobuster': cls.install_gobuster,
         }
         installer = installers.get(tool_name)
         if installer is None:
@@ -116,6 +130,10 @@ class ToolInstaller:
                 'apt install subfinder works on Kali; elsewhere use "brew install subfinder" or '
                 '"go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest" '
                 '(see https://github.com/projectdiscovery/subfinder)'
+            ),
+            'gobuster': (
+                'apt install gobuster works on Kali; elsewhere use "brew install gobuster" or '
+                '"go install github.com/OJ/gobuster/v3@latest" (see https://github.com/OJ/gobuster)'
             ),
         }
         return hints.get(tool_name, '')

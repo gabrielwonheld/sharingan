@@ -152,6 +152,38 @@ Sharingan > subdomains
 Sharingan > subdomains myserver
 ```
 
+## `fuzz <name> <url>`
+
+Directory/file enumeration against a web target, via `gobuster dir`. Unlike
+`scan` and `recon`, this is **opt-in only** — it is never run automatically
+as part of `scan`, because it sends a real, sizeable volume of HTTP
+requests to the target (closer to an active brute-force than `scan`'s
+banner-grabbing or `recon`'s fully passive lookups).
+
+Requires the [`fuzz_wordlist` session option](options.md) to
+be set first — there's no universal default wordlist Sharingan can assume
+is on disk:
+
+```text
+Sharingan > set fuzz_wordlist /usr/share/seclists/Discovery/Web-Content/common.txt
+Sharingan > fuzz myserver http://example.com
+```
+
+- `url` must include a scheme and host (`http://example.com`, not just
+  `example.com`) — its hostname is what gets checked against
+  [scope](#scope-addexcluderemove-value) before anything runs, and what
+  `gobuster` is pointed at.
+- `gobuster` is required — same ask-and-install flow as `rustscan`/`nmap`/`subfinder`.
+- Honors `fuzz_extensions` and `fuzz_threads` ([session options](options.md)).
+- Findings already known from a previous `fuzz` run against the same host
+  and base URL are kept, not re-inserted; the result table marks each row
+  `new` or `known`.
+
+```text
+Sharingan > fuzz myserver http://example.com
+[*] Enumerating directories/files (gobuster dir -u http://example.com)...
+```
+
 ## `hosts [-d <name|addr|all>]`
 
 | Form | Effect |

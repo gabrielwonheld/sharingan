@@ -1,4 +1,6 @@
 import sys
+from urllib.parse import urlparse
+
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.styles import Style
@@ -9,6 +11,7 @@ from rich.table import Table
 from db.database import init_db, get_session
 from core.context import SessionContext
 from core.scope import decide, parse_scope_value
+from phases.fuzz.fuzz_phase import FuzzPhase
 from phases.recon.recon_phase import ReconPhase
 from phases.scan.scan_diff import diff_scan_runs
 from services.whois_service import WhoisService
@@ -63,6 +66,7 @@ class InteractiveConsole:
             'scans': self.command_scans,
             'recon': self.command_recon,
             'subdomains': self.command_subdomains,
+            'fuzz': self.command_fuzz,
             'hosts': self.command_hosts,
             'services': self.command_services,
             'vulns': self.command_vulns,
@@ -73,7 +77,7 @@ class InteractiveConsole:
 
         self.completer = WordCompleter([
             'whois', 'scan', 'scans', 'recon', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
-            'hosts', 'services', 'vulns', 'subdomains',
+            'hosts', 'services', 'vulns', 'subdomains', 'fuzz',
         ], ignore_case=True)
 
         self.style = Style.from_dict({
@@ -346,6 +350,70 @@ class InteractiveConsole:
         self.console.print(
             f"[*] {len(recon_phase.last_all_subdomains)} subdomain(s) total, "
             f"{len(new)} new this run."
+        )
+
+    def command_fuzz(self, args):
+        """`fuzz <name> <url>`: directory/file enumeration (gobuster), opt-in only —
+        never run automatically by `scan`, since it sends a real, sizeable volume
+        of requests to the target."""
+        if len(args) < 2:
+            self.console.print("[red]Usage: fuzz <name> <url>  (needs 'fuzz_wordlist' set — see 'options')[/red]")
+            return
+
+        name, url = args[0], args[1]
+        hostname = urlparse(url).hostname
+        if not hostname:
+            self.console.print("[red]URL must include a scheme and host, e.g. http://example.com/base[/red]")
+            return
+        if not self._target_allowed_by_scope(hostname):
+            return
+
+        wordlist = self.context.get('fuzz_wordlist')
+        if not wordlist:
+            self.console.print(
+                "[red]No wordlist configured. Set one first: set fuzz_wordlist <path>[/red]"
+            )
+            return
+
+        fuzz_phase = FuzzPhase(self.session_db)
+        if not self._ensure_tool_available('gobuster', fuzz_phase.gobuster, required=True):
+            return
+
+        try:
+            host = fuzz_phase.run(
+                name=name, url=url, wordlist=wordlist,
+                extensions=self.context.get('fuzz_extensions') or None,
+                threads=self.context.get('fuzz_threads'),
+                status_codes=None,
+                on_progress=self._report_progress,
+            )
+        except RuntimeError as e:
+            self.session_db.rollback()
+            self.console.print(f"[red]{e}[/red]")
+            return
+        except Exception as e:
+            self.session_db.rollback()
+            self.console.print(f"[red]Error during fuzz: {e}[/red]")
+            return
+
+        new = set(fuzz_phase.last_new_paths)
+        table = Table(title="Findings", caption=f"{name} ({host.addr})")
+        table.add_column("Path", style="cyan")
+        table.add_column("Code", justify="right")
+        table.add_column("Size", justify="right")
+        table.add_column("Redirect", style="white")
+        table.add_column("Status", style="white")
+        for match in fuzz_phase.last_all_matches:
+            status_label = "new" if match.path in new else "known"
+            table.add_row(
+                match.path, str(match.status_code),
+                str(match.size) if match.size is not None else '-',
+                match.redirect or '-',
+                status_label,
+            )
+        self.console.print(table)
+        self.console.print(
+            f"[*] {len(fuzz_phase.last_all_matches)} finding(s) total, {len(new)} new this run."
         )
 
     def command_subdomains(self, args):
@@ -826,6 +894,7 @@ class InteractiveConsole:
         table.add_row("scans [name|addr]", "List scan runs (history), optionally for one host.")
         table.add_row("recon <name> <domain>", "Passive subdomain discovery (subfinder); shows new vs. known.")
         table.add_row("subdomains [name|addr] [-d <name|addr|all>]", "List subdomains found by recon, or delete them.")
+        table.add_row("fuzz <name> <url>", "Directory/file enumeration (gobuster); needs 'fuzz_wordlist' set.")
         table.add_row("scan diff <name|addr>", "Compare the host's last two finished scans.")
         table.add_row("hosts [-d <name|addr|all>]", "List hosts, or delete one host (cascades) / all hosts.")
         table.add_row("services [name|addr] [-d <name|addr|all>]", "List services (optionally by host), or delete them.")
