@@ -17,6 +17,8 @@ from phases.recon.recon_phase import ReconPhase
 from phases.recon.whois_phase import WhoisPhase
 from phases.scan.scan_diff import diff_scan_runs
 from phases.web.spider_phase import SpiderPhase
+from model.crawl_model import CrawledPage, HarvestedEmail
+from model.finding_model import Finding
 from model.host import Host
 from model.scope_model import ScopeRule
 from model.service_model import ScanRun, Service, Vulnerability, current_services_filter
@@ -70,6 +72,9 @@ class InteractiveConsole:
             'subdomains': self.command_subdomains,
             'fuzz': self.command_fuzz,
             'crawl': self.command_crawl,
+            'findings': self.command_findings,
+            'pages': self.command_pages,
+            'emails': self.command_emails,
             'hosts': self.command_hosts,
             'services': self.command_services,
             'vulns': self.command_vulns,
@@ -81,6 +86,7 @@ class InteractiveConsole:
         self.completer = WordCompleter([
             'whois', 'scan', 'scans', 'recon', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
             'hosts', 'services', 'vulns', 'subdomains', 'fuzz', 'crawl',
+            'findings', 'pages', 'emails',
         ], ignore_case=True)
 
         self.style = Style.from_dict({
@@ -549,6 +555,93 @@ class InteractiveConsole:
             table.add_row(subdomain.host.addr, subdomain.name, subdomain.discovered_at.strftime('%Y-%m-%d %H:%M:%S'))
         self.console.print(table)
 
+    def _list_or_delete_rows(self, args, command, model, noun, run_hint, title, columns, row_values, order_by):
+        """Shared by `findings`/`pages`/`emails` (same shape as `subdomains`): no
+        argument lists every row, `<name|addr>` filters by host, `-d <name|addr>`
+        deletes one host's rows (keeps the Host), `-d all` deletes every row for
+        every host (asks for confirmation first). `columns` is a list of
+        (header, style) after the leading Host column; `row_values(row)` returns
+        the matching strings."""
+        if args and args[0] == '-d':
+            if len(args) < 2:
+                self.console.print(f"[red]Usage: {command} -d <name|addr|all>[/red]")
+                return
+            target = args[1]
+            if target == 'all':
+                if not self._confirm_delete_all(f'all {noun}'):
+                    self.console.print("[yellow]Cancelled.[/yellow]")
+                    return
+                for row in self.session_db.query(model).all():
+                    self.session_db.delete(row)
+                self.session_db.commit()
+                self.console.print(f"[green]All {noun} have been deleted.[/green]")
+                return
+
+            host = self._find_host_or_warn(target)
+            if not host:
+                return
+            for row in self.session_db.query(model).filter_by(host_id=host.id).all():
+                self.session_db.delete(row)
+            self.session_db.commit()
+            self.console.print(f"[green]{noun.capitalize()} for '{target}' deleted.[/green]")
+            return
+
+        query = self.session_db.query(model).join(Host)
+        if args:
+            host = self._find_host_or_warn(args[0])
+            if not host:
+                return
+            query = query.filter(model.host_id == host.id)
+
+        rows = query.order_by(Host.addr, *order_by).all()
+        if not rows:
+            self.console.print(f"[yellow]No {noun} registered yet. Run '{run_hint}' first.[/yellow]")
+            return
+
+        table = Table(title=title)
+        table.add_column("Host", style="cyan")
+        for header, style in columns:
+            table.add_column(header, style=style)
+        for row in rows:
+            table.add_row(row.host.addr, *row_values(row))
+        self.console.print(table)
+
+    @staticmethod
+    def _timestamp(value) -> str:
+        return value.strftime('%Y-%m-%d %H:%M:%S')
+
+    def command_findings(self, args):
+        """Lists/deletes `Finding` rows saved by `fuzz`."""
+        self._list_or_delete_rows(
+            args, 'findings', Finding, 'findings', 'fuzz', 'Findings',
+            [("URL", "white"), ("Path", "cyan"), ("Code", "white"), ("Size", "white"),
+             ("Redirect", "white"), ("Discovered", "white")],
+            lambda f: (
+                f.url, f.path, str(f.status_code),
+                str(f.size) if f.size is not None else '-',
+                f.redirect or '-', self._timestamp(f.discovered_at),
+            ),
+            [Finding.url, Finding.path],
+        )
+
+    def command_pages(self, args):
+        """Lists/deletes `CrawledPage` rows saved by `crawl`."""
+        self._list_or_delete_rows(
+            args, 'pages', CrawledPage, 'pages', 'crawl', 'Pages',
+            [("URL", "cyan"), ("Code", "white"), ("Depth", "white"), ("Discovered", "white")],
+            lambda p: (p.url, str(p.status_code), str(p.depth), self._timestamp(p.discovered_at)),
+            [CrawledPage.url],
+        )
+
+    def command_emails(self, args):
+        """Lists/deletes `HarvestedEmail` rows saved by `crawl`."""
+        self._list_or_delete_rows(
+            args, 'emails', HarvestedEmail, 'emails', 'crawl', 'Emails',
+            [("Email", "cyan"), ("Found on", "white"), ("Discovered", "white")],
+            lambda e: (e.email, e.source_url or '-', self._timestamp(e.discovered_at)),
+            [HarvestedEmail.email],
+        )
+
     # -----------------------------------------------------------------
     # `hosts` / `services` / `vulns` — inspired by msfconsole's commands of the
     # same name: no argument lists, `-d <addr>` deletes one host's data,
@@ -979,8 +1072,11 @@ class InteractiveConsole:
         table.add_row("scans [name|addr]", "List scan runs (history), optionally for one host.")
         table.add_row("recon <name> <domain>", "Passive subdomain discovery (subfinder); shows new vs. known.")
         table.add_row("subdomains [name|addr] [-d <name|addr|all>]", "List subdomains found by recon, or delete them.")
+        table.add_row("findings [name|addr] [-d <name|addr|all>]", "List paths found by fuzz, or delete them.")
         table.add_row("fuzz <name> <url>", "Directory/file enumeration (gobuster); needs 'fuzz_wordlist' set.")
         table.add_row("crawl <name> <url>", "Bounded crawl of a site: pages and emails; scope-checked, see spider_* options.")
+        table.add_row("pages [name|addr] [-d <name|addr|all>]", "List pages found by crawl, or delete them.")
+        table.add_row("emails [name|addr] [-d <name|addr|all>]", "List emails found by crawl, or delete them.")
         table.add_row("scan diff <name|addr>", "Compare the host's last two finished scans.")
         table.add_row("hosts [-d <name|addr|all>]", "List hosts, or delete one host (cascades) / all hosts.")
         table.add_row("services [name|addr] [-d <name|addr|all>]", "List services (optionally by host), or delete them.")

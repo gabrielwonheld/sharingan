@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -1665,3 +1666,137 @@ def test_command_crawl_rolls_back_the_session_when_it_fails(mocker):
     session.rollback.assert_called_once()
     assert any('Error during crawl' in t for t in _printed(console))
 
+
+
+# --- findings / pages / emails: list & delete what fuzz and crawl saved ----
+
+def _seed_findings(session, host):
+    from model.finding_model import Finding
+    session.add_all([
+        Finding(host_id=host.id, url=f'http://{host.addr}', path='/admin', status_code=200, size=10),
+        Finding(host_id=host.id, url=f'http://{host.addr}', path='/login', status_code=302, redirect='/'),
+    ])
+
+
+def _seed_pages(session, host):
+    from model.crawl_model import CrawledPage
+    session.add_all([
+        CrawledPage(host_id=host.id, url=f'http://{host.addr}/', status_code=200, depth=0),
+        CrawledPage(host_id=host.id, url=f'http://{host.addr}/a', status_code=404, depth=1),
+    ])
+
+
+def _seed_emails(session, host):
+    from model.crawl_model import HarvestedEmail
+    session.add_all([
+        HarvestedEmail(host_id=host.id, email=f'a@{host.addr}', source_url=f'http://{host.addr}/'),
+        HarvestedEmail(host_id=host.id, email=f'b@{host.addr}', source_url=None),
+    ])
+
+
+def _row_model(name):
+    from model.crawl_model import CrawledPage, HarvestedEmail
+    from model.finding_model import Finding
+    return {'findings': Finding, 'pages': CrawledPage, 'emails': HarvestedEmail}[name]
+
+
+# command, seeder, table title, empty-state word
+LISTING_COMMANDS = [
+    ('findings', _seed_findings, 'Findings', 'No findings'),
+    ('pages', _seed_pages, 'Pages', 'No pages'),
+    ('emails', _seed_emails, 'Emails', 'No emails'),
+]
+
+
+def _two_seeded_hosts(session, seeder):
+    hosts = []
+    for addr, nome in (('192.0.2.80', 'alvo1'), ('192.0.2.81', 'alvo2')):
+        host = Host(nome=nome, addr=addr)
+        session.add(host)
+        session.commit()
+        seeder(session, host)
+        session.commit()
+        hosts.append(host)
+    return hosts
+
+
+@pytest.mark.parametrize('command,seeder,title,empty', LISTING_COMMANDS)
+def test_listing_command_lists_everything(command, seeder, title, empty):
+    session = make_session()
+    console = make_console(session)
+    _two_seeded_hosts(session, seeder)
+
+    getattr(console, f'command_{command}')([])
+
+    assert sorted(_table_cell_values(console.console.print, title, 'Host')) == [
+        '192.0.2.80', '192.0.2.80', '192.0.2.81', '192.0.2.81',
+    ]
+
+
+@pytest.mark.parametrize('command,seeder,title,empty', LISTING_COMMANDS)
+def test_listing_command_filters_by_host_name_or_address(command, seeder, title, empty):
+    session = make_session()
+    console = make_console(session)
+    _two_seeded_hosts(session, seeder)
+
+    getattr(console, f'command_{command}')(['alvo1'])
+
+    assert _table_cell_values(console.console.print, title, 'Host') == ['192.0.2.80'] * 2
+
+
+@pytest.mark.parametrize('command,seeder,title,empty', LISTING_COMMANDS)
+def test_listing_command_unknown_host_shows_error(command, seeder, title, empty):
+    console = make_console(make_session())
+
+    getattr(console, f'command_{command}')(['nope'])
+
+    assert any('not found' in t for t in _printed(console))
+
+
+@pytest.mark.parametrize('command,seeder,title,empty', LISTING_COMMANDS)
+def test_listing_command_with_nothing_saved_says_so(command, seeder, title, empty):
+    console = make_console(make_session())
+
+    getattr(console, f'command_{command}')([])
+
+    assert any(empty in t for t in _printed(console))
+
+
+@pytest.mark.parametrize('command,seeder,title,empty', LISTING_COMMANDS)
+def test_listing_command_delete_by_host_keeps_the_host_and_other_hosts(command, seeder, title, empty):
+    session = make_session()
+    console = make_console(session)
+    _two_seeded_hosts(session, seeder)
+    model = _row_model(command)
+
+    getattr(console, f'command_{command}')(['-d', 'alvo1'])
+
+    assert session.query(Host).count() == 2
+    assert session.query(model).count() == 2
+    assert {r.host.addr for r in session.query(model)} == {'192.0.2.81'}
+
+
+@pytest.mark.parametrize('command,seeder,title,empty', LISTING_COMMANDS)
+def test_listing_command_delete_all_asks_for_confirmation(command, seeder, title, empty, mocker):
+    session = make_session()
+    console = make_console(session)
+    _two_seeded_hosts(session, seeder)
+    model = _row_model(command)
+    confirm = mocker.patch('view.console.Confirm.ask', return_value=False)
+
+    getattr(console, f'command_{command}')(['-d', 'all'])
+    assert session.query(model).count() == 4
+
+    confirm.return_value = True
+    getattr(console, f'command_{command}')(['-d', 'all'])
+    assert session.query(model).count() == 0
+    assert session.query(Host).count() == 2
+
+
+@pytest.mark.parametrize('command,seeder,title,empty', LISTING_COMMANDS)
+def test_listing_command_delete_without_target_shows_usage(command, seeder, title, empty):
+    console = make_console(make_session())
+
+    getattr(console, f'command_{command}')(['-d'])
+
+    assert any(f'Usage: {command} -d' in t for t in _printed(console))

@@ -155,6 +155,30 @@ Sharingan > subdomains
 Sharingan > subdomains myserver
 ```
 
+## `findings`, `pages`, `emails`
+
+List or delete what `fuzz` and `crawl` saved, with the same forms as
+[`subdomains`](#subdomains-nameaddr--d-nameaddrall):
+
+| Command | Shows | Saved by |
+|---|---|---|
+| `findings` | host, base URL, path, status code, size, redirect, when discovered | `fuzz` |
+| `pages` | host, URL, status code, depth, when discovered | `crawl` |
+| `emails` | host, address, first page it appeared on, when discovered | `crawl` |
+
+| Form | Effect |
+|---|---|
+| `<command>` | Lists every host's rows. |
+| `<command> <name\|addr>` | Lists only that host's rows. |
+| `<command> -d <name\|addr>` | Deletes that host's rows — keeps the `Host` itself. |
+| `<command> -d all` | Deletes every row for every host. Asks for confirmation first. |
+
+```text
+Sharingan > findings myserver
+Sharingan > pages
+Sharingan > emails -d myserver
+```
+
 ## `fuzz <name> <url>`
 
 Directory/file enumeration against a web target, via `gobuster dir`. Unlike
