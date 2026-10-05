@@ -26,6 +26,7 @@ HELP_SECTIONS: tuple[HelpSection, ...] = (
     HelpSection('Overview', (
         ('phases [name|addr]', "List the phases; with a host, show which already ran on it (alias: fases)."),
         ('info <name|addr>', "Everything collected about one host, across all phases."),
+        ('workspace [<name> | add <name> | delete <name>]', "List, switch to, create or delete workspaces (projects). The prompt shows the current one."),
         ('hosts [-d <name|addr|all>]', "List hosts, or delete one host (cascades) / all hosts."),
         ('scope [add|exclude|remove <value>]', "Show or edit the scope (domain, IP or CIDR). Targets outside it are blocked."),
     )),

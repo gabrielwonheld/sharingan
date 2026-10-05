@@ -2,6 +2,7 @@ from urllib.parse import urlparse
 
 from model.finding_model import Finding
 from model.host import Host
+from model.workspace_model import DEFAULT_WORKSPACE_ID
 from phases.base import PhaseModule
 from phases.common import get_or_create_host
 from phases.fuzz.tools.gobuster_tool import GobusterTool
@@ -26,8 +27,9 @@ class FuzzPhase(PhaseModule):
     name = 'fuzz'
     description = 'Directory/file enumeration against a web target (gobuster).'
 
-    def __init__(self, db_session, gobuster=GobusterTool):
+    def __init__(self, db_session, gobuster=GobusterTool, workspace_id=DEFAULT_WORKSPACE_ID):
         self.session = db_session
+        self.workspace_id = workspace_id
         self.gobuster = gobuster
         self.last_new_paths: list[str] = []
         self.last_all_matches: list = []
@@ -48,7 +50,7 @@ class FuzzPhase(PhaseModule):
             on_progress(f'Enumerating directories/files (gobuster dir -u {url})...')
 
         hostname = urlparse(url).hostname or url
-        host = get_or_create_host(self.session, name, hostname)
+        host = get_or_create_host(self.session, name, hostname, self.workspace_id)
 
         matches = self.gobuster.enumerate(
             url, wordlist, extensions=extensions, threads=threads, status_codes=status_codes,

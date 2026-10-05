@@ -1,3 +1,4 @@
+import re
 import sys
 from urllib.parse import urlparse
 
@@ -25,6 +26,7 @@ from model.scope_model import ScopeRule
 from model.service_model import ScanRun, Service, Vulnerability, current_services_filter
 from model.subdomain_model import Subdomain
 from model.whois_model import WhoisRecord
+from model.workspace_model import DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME, Workspace
 from view.catalog import HELP_SECTIONS, PHASES, PLANNED_NOTE
 from phases.scan.scan_phase import ScanPhase
 from phases.scan.tools.installer import ToolInstaller
@@ -62,6 +64,11 @@ def _exploit_matched_cve(exploit, known_cves: set) -> str | None:
 
 
 class InteractiveConsole:
+    # The workspace the session is working in (session-only, always starts in
+    # `default`). Class-level defaults so a console built without __init__ works.
+    workspace_id = DEFAULT_WORKSPACE_ID
+    workspace_name = DEFAULT_WORKSPACE_NAME
+
     def __init__(self):
         self.console = RichConsole()
         self.session_db = get_session()
@@ -83,6 +90,7 @@ class InteractiveConsole:
             'fuzz': self.command_fuzz,
             'crawl': self.command_crawl,
             'findings': self.command_findings,
+            'workspace': self.command_workspace,
             'phases': self.command_phases,
             'fases': self.command_phases,
             'info': self.command_info,
@@ -99,11 +107,12 @@ class InteractiveConsole:
         self.completer = WordCompleter([
             'whois', 'scan', 'scans', 'recon', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
             'hosts', 'services', 'vulns', 'subdomains', 'fuzz', 'crawl',
-            'findings', 'pages', 'emails', 'phases', 'fases', 'info',
+            'findings', 'pages', 'emails', 'phases', 'fases', 'info', 'workspace',
         ], ignore_case=True)
 
         self.style = Style.from_dict({
             'prompt': 'bold #ff2b2b',
+            'workspace': 'bold #5fafff',
         })
 
         self.prompt_session = PromptSession(
@@ -131,12 +140,22 @@ class InteractiveConsole:
         with patch_stdout(raw=True):
             while True:
                 try:
-                    text = self.prompt_session.prompt([('class:prompt', 'Sharingan > ')])
+                    text = self.prompt_session.prompt(self._prompt_message())
                     self.process_command(text)
                 except KeyboardInterrupt:
                     continue
                 except EOFError:
                     break
+
+    def _prompt_message(self):
+        """`Sharingan [workspace] > ` — the workspace name sits where a shell
+        shows the current directory, so it's always clear which project the next
+        command will touch."""
+        return [
+            ('class:prompt', 'Sharingan '),
+            ('class:workspace', f'[{self.workspace_name}]'),
+            ('class:prompt', ' > '),
+        ]
 
     def process_command(self, text: str):
         parts = text.strip().split()
@@ -204,9 +223,9 @@ class InteractiveConsole:
             except ValueError as e:
                 self.console.print(f"[red]{e}[/red]")
                 return
-            rule = self.session_db.query(ScopeRule).filter_by(value=value).first()
+            rule = self._scope_rules_query().filter_by(value=value).first()
             if rule is None:
-                rule = ScopeRule(kind=kind, value=value)
+                rule = ScopeRule(kind=kind, value=value, workspace_id=self.workspace_id)
             rule.allow = action == 'add'
             self.session_db.add(rule)
             self.session_db.commit()
@@ -221,7 +240,7 @@ class InteractiveConsole:
             except ValueError as e:
                 self.console.print(f"[red]{e}[/red]")
                 return
-            rule = self.session_db.query(ScopeRule).filter_by(value=value).first()
+            rule = self._scope_rules_query().filter_by(value=value).first()
             if rule is None:
                 self.console.print(f"[yellow]'{value}' is not in the scope.[/yellow]")
                 return
@@ -231,8 +250,12 @@ class InteractiveConsole:
         else:
             self.console.print("[red]Usage: scope [add|exclude|remove <value>][/red]")
 
+    def _scope_rules_query(self):
+        """Scope belongs to the workspace: each engagement keeps its own targets."""
+        return self.session_db.query(ScopeRule).filter(ScopeRule.workspace_id == self.workspace_id)
+
     def _print_scope(self):
-        rules = self.session_db.query(ScopeRule).order_by(ScopeRule.allow.desc(), ScopeRule.value).all()
+        rules = self._scope_rules_query().order_by(ScopeRule.allow.desc(), ScopeRule.value).all()
         if not rules:
             self.console.print("[yellow]No scope defined: any target can be scanned. Use 'scope add <domain|ip|cidr>'.[/yellow]")
             return
@@ -246,7 +269,7 @@ class InteractiveConsole:
 
     def _target_allowed_by_scope(self, target: str) -> bool:
         """Checks the scope before anything touches the target; prints why when blocked."""
-        rules = [(r.kind, r.value, r.allow) for r in self.session_db.query(ScopeRule)]
+        rules = [(r.kind, r.value, r.allow) for r in self._scope_rules_query()]
         decision = decide(target, rules)
         if not decision.allowed:
             self.console.print(f"[red]{decision.reason} Review it with 'scope'.[/red]")
@@ -270,7 +293,7 @@ class InteractiveConsole:
 
     def command_scans(self, args):
         """Lists scan runs (history), newest first; optionally for one host."""
-        query = self.session_db.query(ScanRun).join(Host)
+        query = self._workspace_rows(ScanRun)
         if args:
             host = self._find_host_or_warn(args[0])
             if not host:
@@ -359,7 +382,7 @@ class InteractiveConsole:
         if not self._target_allowed_by_scope(domain):
             return
 
-        recon_phase = ReconPhase(self.session_db)
+        recon_phase = ReconPhase(self.session_db, workspace_id=self.workspace_id)
         if not self._ensure_tool_available('subfinder', recon_phase.subfinder, required=True):
             return
 
@@ -410,7 +433,7 @@ class InteractiveConsole:
             )
             return
 
-        fuzz_phase = FuzzPhase(self.session_db)
+        fuzz_phase = FuzzPhase(self.session_db, workspace_id=self.workspace_id)
         if not self._ensure_tool_available('gobuster', fuzz_phase.gobuster, required=True):
             return
 
@@ -454,7 +477,7 @@ class InteractiveConsole:
     def _scope_allows(self, hostname: str) -> bool:
         """Silent scope check (no printing), for phases that re-check every
         hostname they'd touch mid-run — e.g. each link `crawl` follows."""
-        rules = [(r.kind, r.value, r.allow) for r in self.session_db.query(ScopeRule)]
+        rules = [(r.kind, r.value, r.allow) for r in self._scope_rules_query()]
         return decide(hostname, rules).allowed
 
     def command_crawl(self, args):
@@ -473,7 +496,7 @@ class InteractiveConsole:
         if not self._target_allowed_by_scope(hostname):
             return
 
-        spider_phase = SpiderPhase(self.session_db)
+        spider_phase = SpiderPhase(self.session_db, workspace_id=self.workspace_id)
         try:
             host = spider_phase.run(
                 name=name, url=url,
@@ -533,7 +556,7 @@ class InteractiveConsole:
                 if not self._confirm_delete_all('all subdomains'):
                     self.console.print("[yellow]Cancelled.[/yellow]")
                     return
-                for subdomain in self.session_db.query(Subdomain).all():
+                for subdomain in self._workspace_rows(Subdomain).all():
                     self.session_db.delete(subdomain)
                 self.session_db.commit()
                 self.console.print("[green]All subdomains have been deleted.[/green]")
@@ -548,7 +571,7 @@ class InteractiveConsole:
             self.console.print(f"[green]Subdomains for '{target}' deleted.[/green]")
             return
 
-        query = self.session_db.query(Subdomain).join(Host)
+        query = self._workspace_rows(Subdomain)
         if args:
             host = self._find_host_or_warn(args[0])
             if not host:
@@ -567,6 +590,132 @@ class InteractiveConsole:
         for subdomain in subdomains:
             table.add_row(subdomain.host.addr, subdomain.name, subdomain.discovered_at.strftime('%Y-%m-%d %H:%M:%S'))
         self.console.print(table)
+
+    # -----------------------------------------------------------------
+    # Workspaces: hosts (and everything the phases saved for them) and scope
+    # rules belong to one workspace; every query below goes through these
+    # helpers so a command can only ever see the current one.
+    # -----------------------------------------------------------------
+
+    def _hosts_query(self):
+        return self.session_db.query(Host).filter(Host.workspace_id == self.workspace_id)
+
+    def _workspace_rows(self, model):
+        """Rows of `model` (anything hanging off a Host) that belong to hosts of
+        the current workspace. The one place that knows how to reach `Host`
+        from each model, so no listing/delete forgets the workspace filter."""
+        if model is Host:
+            return self._hosts_query()
+        query = self.session_db.query(model)
+        if model is Vulnerability:
+            query = query.join(Service, Vulnerability.service_id == Service.id)
+            query = query.join(Host, Service.host_id == Host.id)
+        else:
+            query = query.join(Host, model.host_id == Host.id)
+        return query.filter(Host.workspace_id == self.workspace_id)
+
+    @staticmethod
+    def _valid_workspace_name(name: str) -> bool:
+        reserved = {'add', 'delete'}  # subcommands, so they can't also be names
+        return (
+            bool(re.fullmatch(r'[A-Za-z0-9_.-]{1,40}', name))
+            and name.lower() not in reserved
+        )
+
+    def _find_workspace(self, name: str):
+        return self.session_db.query(Workspace).filter_by(name=name).first()
+
+    def _switch_workspace(self, workspace: Workspace) -> None:
+        self.workspace_id = workspace.id
+        self.workspace_name = workspace.name
+
+    def command_workspace(self, args):
+        """`workspace` lists; `workspace <name>` switches; `workspace add <name>`
+        creates (and switches to) one; `workspace delete <name>` removes one with
+        everything in it."""
+        if not args:
+            self._print_workspaces()
+            return
+
+        action = args[0]
+        if action == 'add':
+            self._workspace_add(args[1:])
+        elif action == 'delete':
+            self._workspace_delete(args[1:])
+        elif len(args) == 1:
+            workspace = self._find_workspace(action)
+            if workspace is None:
+                self.console.print(
+                    f"[red]Workspace '{action}' not found. Create it with 'workspace add {action}'.[/red]"
+                )
+                return
+            self._switch_workspace(workspace)
+            self.console.print(f"[green]Workspace: {workspace.name}[/green]")
+        else:
+            self.console.print("[red]Usage: workspace [<name> | add <name> | delete <name>][/red]")
+
+    def _print_workspaces(self):
+        table = Table(title="Workspaces")
+        table.add_column("Current", justify="center", style="green")
+        table.add_column("Name", style="cyan")
+        table.add_column("Hosts", justify="right")
+        table.add_column("Created", style="white")
+        for workspace in self.session_db.query(Workspace).order_by(Workspace.id).all():
+            table.add_row(
+                '*' if workspace.id == self.workspace_id else '',
+                workspace.name,
+                str(len(workspace.hosts)),
+                self._timestamp(workspace.created_at),
+            )
+        self.console.print(table)
+
+    def _workspace_add(self, values):
+        if not values:
+            self.console.print("[red]Usage: workspace add <name>[/red]")
+            return
+        name = values[0]
+        if not self._valid_workspace_name(name):
+            self.console.print(
+                "[red]Invalid workspace name: use 1-40 letters, digits, '.', '_' or '-' "
+                "('add' and 'delete' are reserved).[/red]"
+            )
+            return
+        if self._find_workspace(name):
+            self.console.print(f"[red]Workspace '{name}' already exists. Switch to it with 'workspace {name}'.[/red]")
+            return
+        workspace = Workspace(name=name)
+        self.session_db.add(workspace)
+        self.session_db.commit()
+        self._switch_workspace(workspace)
+        self.console.print(f"[green]Workspace '{name}' created; now working in it.[/green]")
+
+    def _workspace_delete(self, values):
+        if not values:
+            self.console.print("[red]Usage: workspace delete <name>[/red]")
+            return
+        name = values[0]
+        workspace = self._find_workspace(name)
+        if workspace is None:
+            self.console.print(f"[red]Workspace '{name}' not found.[/red]")
+            return
+        if workspace.id == DEFAULT_WORKSPACE_ID:
+            self.console.print("[red]The 'default' workspace cannot be deleted.[/red]")
+            return
+        if not Confirm.ask(
+            f"This deletes workspace '{name}' with its {len(workspace.hosts)} host(s), "
+            "everything collected for them and its scope. Confirm?",
+            default=False,
+            console=self.console,
+        ):
+            self.console.print("[yellow]Cancelled.[/yellow]")
+            return
+
+        was_current = workspace.id == self.workspace_id
+        self.session_db.delete(workspace)
+        self.session_db.commit()
+        if was_current:
+            self._switch_workspace(self._find_workspace(DEFAULT_WORKSPACE_NAME))
+        self.console.print(f"[green]Workspace '{name}' deleted.[/green]")
 
     # -----------------------------------------------------------------
     # `phases` / `info` — orientation: what phases exist, what ran against a
@@ -789,7 +938,7 @@ class InteractiveConsole:
                 if not self._confirm_delete_all(f'all {noun}'):
                     self.console.print("[yellow]Cancelled.[/yellow]")
                     return
-                for row in self.session_db.query(model).all():
+                for row in self._workspace_rows(model).all():
                     self.session_db.delete(row)
                 self.session_db.commit()
                 self.console.print(f"[green]All {noun} have been deleted.[/green]")
@@ -804,7 +953,7 @@ class InteractiveConsole:
             self.console.print(f"[green]{noun.capitalize()} for '{target}' deleted.[/green]")
             return
 
-        query = self.session_db.query(model).join(Host)
+        query = self._workspace_rows(model)
         if args:
             host = self._find_host_or_warn(args[0])
             if not host:
@@ -880,11 +1029,11 @@ class InteractiveConsole:
         can be reused across addresses, so an ambiguous one is reported instead
         of guessing.
         """
-        host = self.session_db.query(Host).filter_by(addr=ident).first()
+        host = self._hosts_query().filter_by(addr=ident).first()
         if host:
             return host
 
-        matches = self.session_db.query(Host).filter_by(nome=ident).order_by(Host.addr).all()
+        matches = self._hosts_query().filter_by(nome=ident).order_by(Host.addr).all()
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
@@ -907,7 +1056,7 @@ class InteractiveConsole:
                 if not self._confirm_delete_all('all hosts'):
                     self.console.print("[yellow]Cancelled.[/yellow]")
                     return
-                for host in self.session_db.query(Host).all():
+                for host in self._hosts_query().all():
                     self.session_db.delete(host)
                 self.session_db.commit()
                 self.console.print("[green]All hosts have been deleted.[/green]")
@@ -921,7 +1070,7 @@ class InteractiveConsole:
             self.console.print(f"[green]Host '{target}' deleted.[/green]")
             return
 
-        hosts = self.session_db.query(Host).order_by(Host.addr).all()
+        hosts = self._hosts_query().order_by(Host.addr).all()
         if not hosts:
             self.console.print("[yellow]No hosts registered yet. Run 'scan' first.[/yellow]")
             return
@@ -944,7 +1093,7 @@ class InteractiveConsole:
                 if not self._confirm_delete_all('all services'):
                     self.console.print("[yellow]Cancelled.[/yellow]")
                     return
-                for service in self.session_db.query(Service).all():
+                for service in self._workspace_rows(Service).all():
                     self.session_db.delete(service)
                 self.session_db.commit()
                 self.console.print("[green]All services have been deleted.[/green]")
@@ -959,7 +1108,7 @@ class InteractiveConsole:
             self.console.print(f"[green]Services for '{target}' deleted.[/green]")
             return
 
-        query = self.session_db.query(Service).join(Host).filter(current_services_filter())
+        query = self._workspace_rows(Service).filter(current_services_filter())
         if args:
             host = self._find_host_or_warn(args[0])
             if not host:
@@ -987,7 +1136,7 @@ class InteractiveConsole:
                 if not self._confirm_delete_all('all vulnerabilities'):
                     self.console.print("[yellow]Cancelled.[/yellow]")
                     return
-                for vuln in self.session_db.query(Vulnerability).all():
+                for vuln in self._workspace_rows(Vulnerability).all():
                     self.session_db.delete(vuln)
                 self.session_db.commit()
                 self.console.print("[green]All vulnerabilities have been deleted.[/green]")
@@ -1008,7 +1157,7 @@ class InteractiveConsole:
             self.console.print(f"[green]Vulnerabilities for '{target}' deleted.[/green]")
             return
 
-        query = self.session_db.query(Vulnerability).join(Service).join(Host).filter(current_services_filter())
+        query = self._workspace_rows(Vulnerability).filter(current_services_filter())
         if args:
             host = self._find_host_or_warn(args[0])
             if not host:
@@ -1060,7 +1209,7 @@ class InteractiveConsole:
         self.print_help(args)
 
     def handle_whois(self, domain: str):
-        whois_phase = WhoisPhase(self.session_db)
+        whois_phase = WhoisPhase(self.session_db, workspace_id=self.workspace_id)
 
         try:
             record = whois_phase.run(domain=domain, on_progress=self._report_progress)
@@ -1175,6 +1324,7 @@ class InteractiveConsole:
             self.session_db,
             rustscan_batch=self.context.get('rustscan_batch'),
             rustscan_timeout=self.context.get('rustscan_timeout'),
+            workspace_id=self.workspace_id,
         )
 
         if not self._ensure_tool_available('rustscan', scan_phase.rustscan, required=True):

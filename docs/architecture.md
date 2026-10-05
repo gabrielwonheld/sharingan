@@ -44,8 +44,10 @@ real subprocess, or a real binary.**
 
 How the phases share one `Host` per address is explained in [Hosts and phases](hosts-and-phases.md).
 
-- `Host` — one row per scanned/reconned address (the address is the
-  identity; the name is just a label).
+- `Workspace` — a project. `Host` and `ScopeRule` belong to one (`workspace_id`);
+  deleting it cascades to its hosts, scope and everything below them.
+- `Host` — one row per scanned/reconned address *per workspace* (the address
+  is the identity within its workspace; the name is just a label).
 - `ScanRun` — one row per `scan` execution. `Service` rows (and, through
   them, `Vulnerability`/`ExploitMatch`) belong to the run that found them,
   so history isn't overwritten. `current_services_filter()` is the query

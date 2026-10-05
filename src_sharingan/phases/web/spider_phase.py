@@ -2,6 +2,7 @@ from urllib.parse import urlparse
 
 from model.crawl_model import CrawledPage, HarvestedEmail
 from model.host import Host
+from model.workspace_model import DEFAULT_WORKSPACE_ID
 from phases.base import PhaseModule
 from phases.common import get_or_create_host
 from phases.web.tools.crawler import CrawlerTool
@@ -29,8 +30,9 @@ class SpiderPhase(PhaseModule):
     name = 'spider'
     description = 'Bounded crawl of a web target: pages and email addresses.'
 
-    def __init__(self, db_session, crawler=CrawlerTool):
+    def __init__(self, db_session, crawler=CrawlerTool, workspace_id=DEFAULT_WORKSPACE_ID):
         self.session = db_session
+        self.workspace_id = workspace_id
         self.crawler = crawler
         self.last_new_pages: list[str] = []
         self.last_all_pages: list = []
@@ -52,7 +54,7 @@ class SpiderPhase(PhaseModule):
             on_progress(f'Crawling {url} (depth <= {max_depth}, pages <= {max_pages})...')
 
         start_host = (urlparse(url).hostname or url).lower()
-        host = get_or_create_host(self.session, name, start_host)
+        host = get_or_create_host(self.session, name, start_host, self.workspace_id)
 
         def in_scope(candidate: str) -> bool:
             parsed = urlparse(candidate)

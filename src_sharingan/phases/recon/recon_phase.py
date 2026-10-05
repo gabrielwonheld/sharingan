@@ -1,4 +1,5 @@
 from model.host import Host
+from model.workspace_model import DEFAULT_WORKSPACE_ID
 from model.subdomain_model import Subdomain
 from phases.base import PhaseModule
 from phases.common import get_or_create_host
@@ -20,8 +21,9 @@ class ReconPhase(PhaseModule):
     name = 'recon'
     description = 'Discovers subdomains of a domain via passive sources (subfinder).'
 
-    def __init__(self, db_session, subfinder=SubfinderTool):
+    def __init__(self, db_session, subfinder=SubfinderTool, workspace_id=DEFAULT_WORKSPACE_ID):
         self.session = db_session
+        self.workspace_id = workspace_id
         self.subfinder = subfinder
         self.last_new_subdomains: list[str] = []
         self.last_all_subdomains: list[str] = []
@@ -32,7 +34,7 @@ class ReconPhase(PhaseModule):
         if on_progress:
             on_progress(f'Discovering subdomains (subfinder -d {domain})...')
 
-        host = get_or_create_host(self.session, name, domain)
+        host = get_or_create_host(self.session, name, domain, self.workspace_id)
         found = self.subfinder.find_subdomains(domain)
 
         existing = {s.name for s in self.session.query(Subdomain).filter_by(host_id=host.id)}

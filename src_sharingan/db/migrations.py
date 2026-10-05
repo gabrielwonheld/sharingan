@@ -71,6 +71,78 @@ def drop_unique_constraint_on_hosts_nome(engine) -> None:
         conn.execute(text('ALTER TABLE hosts_new RENAME TO hosts'))
 
 
+def _columns(engine, table_name: str) -> set:
+    return {col['name'] for col in inspect(engine).get_columns(table_name)}
+
+
+def add_workspaces(engine) -> None:
+    """Workspaces (2026-10-05): creates the default workspace (id 1) and moves
+    pre-existing hosts and scope rules into it.
+
+    `hosts.addr` and `scope_rules.value` used to be globally UNIQUE; they must
+    now be unique *per workspace*. SQLite can't alter a constraint, so each
+    table is rebuilt (create new -> copy rows into workspace 1 -> drop old ->
+    rename). Idempotent: a table that already has `workspace_id` is left alone.
+    """
+    tables = inspect(engine).get_table_names()
+
+    if 'workspaces' in tables:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO workspaces (id, name, created_at) "
+                "SELECT 1, 'default', CURRENT_TIMESTAMP "
+                "WHERE NOT EXISTS (SELECT 1 FROM workspaces WHERE id = 1)"
+            ))
+
+    if 'hosts' in tables and 'workspace_id' not in _columns(engine, 'hosts'):
+        with engine.begin() as conn:
+            conn.execute(text(
+                """
+                CREATE TABLE hosts_new (
+                    id INTEGER NOT NULL,
+                    workspace_id INTEGER NOT NULL DEFAULT 1,
+                    nome VARCHAR(80) NOT NULL,
+                    addr VARCHAR(120) NOT NULL,
+                    ports_active VARCHAR(120),
+                    ports_inactive VARCHAR(120),
+                    subdomains VARCHAR(120),
+                    PRIMARY KEY (id),
+                    CONSTRAINT uq_host_workspace_addr UNIQUE (workspace_id, addr),
+                    FOREIGN KEY(workspace_id) REFERENCES workspaces (id)
+                )
+                """
+            ))
+            conn.execute(text(
+                'INSERT INTO hosts_new (id, workspace_id, nome, addr, ports_active, ports_inactive, subdomains) '
+                'SELECT id, 1, nome, addr, ports_active, ports_inactive, subdomains FROM hosts'
+            ))
+            conn.execute(text('DROP TABLE hosts'))
+            conn.execute(text('ALTER TABLE hosts_new RENAME TO hosts'))
+
+    if 'scope_rules' in tables and 'workspace_id' not in _columns(engine, 'scope_rules'):
+        with engine.begin() as conn:
+            conn.execute(text(
+                """
+                CREATE TABLE scope_rules_new (
+                    id INTEGER NOT NULL,
+                    workspace_id INTEGER NOT NULL DEFAULT 1,
+                    kind VARCHAR(10) NOT NULL,
+                    value VARCHAR(255) NOT NULL,
+                    allow BOOLEAN NOT NULL,
+                    PRIMARY KEY (id),
+                    CONSTRAINT uq_scope_workspace_value UNIQUE (workspace_id, value),
+                    FOREIGN KEY(workspace_id) REFERENCES workspaces (id)
+                )
+                """
+            ))
+            conn.execute(text(
+                'INSERT INTO scope_rules_new (id, workspace_id, kind, value, allow) '
+                'SELECT id, 1, kind, value, allow FROM scope_rules'
+            ))
+            conn.execute(text('DROP TABLE scope_rules'))
+            conn.execute(text('ALTER TABLE scope_rules_new RENAME TO scope_rules'))
+
+
 def run_lightweight_migrations(engine) -> None:
     """Ponto único chamado por `init_db()` logo após `create_all()`.
 
@@ -79,6 +151,7 @@ def run_lightweight_migrations(engine) -> None:
     ou remover), então é seguro rodar em todo boot.
     """
     drop_unique_constraint_on_hosts_nome(engine)
+    add_workspaces(engine)
     # `Service.name` (2026-08-31): nmap's own guessed service name, persisted even
     # when product/version stay unknown — see model/service_model.py.
     # `Service.scan_run_id` (2026-10-02): links a service to the ScanRun that

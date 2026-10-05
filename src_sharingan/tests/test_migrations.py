@@ -211,3 +211,77 @@ def test_run_lightweight_migrations_adds_whois_host_id_on_legacy_schema():
     assert 'host_id' in {c['name'] for c in inspect(engine).get_columns('whois_records')}
     with engine.begin() as conn:
         assert conn.execute(text('SELECT host_id FROM whois_records')).scalar() is None
+
+
+def make_pre_workspace_engine():
+    """A `sharingan.db` from before workspaces: `hosts.addr` and
+    `scope_rules.value` are globally UNIQUE and there's no `workspace_id`."""
+    engine = create_engine('sqlite:///:memory:')
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE hosts (id INTEGER NOT NULL, nome VARCHAR(80) NOT NULL, "
+            "addr VARCHAR(120) NOT NULL, ports_active VARCHAR(120), ports_inactive VARCHAR(120), "
+            "subdomains VARCHAR(120), PRIMARY KEY (id), UNIQUE (addr))"
+        ))
+        conn.execute(text(
+            "CREATE TABLE scope_rules (id INTEGER NOT NULL, kind VARCHAR(10) NOT NULL, "
+            "value VARCHAR(255) NOT NULL, allow BOOLEAN NOT NULL, PRIMARY KEY (id), UNIQUE (value))"
+        ))
+        conn.execute(text("INSERT INTO hosts (id, nome, addr) VALUES (7, 'alvo', '10.0.0.1')"))
+        conn.execute(text("INSERT INTO scope_rules (id, kind, value, allow) VALUES (3, 'domain', 'example.com', 1)"))
+    return engine
+
+
+def test_migration_moves_existing_hosts_and_scope_into_the_default_workspace():
+    engine = make_pre_workspace_engine()
+
+    run_lightweight_migrations(engine)
+
+    with engine.begin() as conn:
+        assert conn.execute(text('SELECT id, workspace_id, addr FROM hosts')).all() == [(7, 1, '10.0.0.1')]
+        assert conn.execute(text('SELECT workspace_id, value FROM scope_rules')).all() == [(1, 'example.com')]
+
+
+def test_migration_lets_the_same_address_exist_in_another_workspace():
+    from sqlalchemy.exc import IntegrityError
+    import pytest
+
+    engine = make_pre_workspace_engine()
+    run_lightweight_migrations(engine)
+
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO hosts (nome, addr, workspace_id) VALUES ('b', '10.0.0.1', 2)"))
+        conn.execute(text("INSERT INTO scope_rules (kind, value, allow, workspace_id) VALUES ('domain', 'example.com', 1, 2)"))
+    with pytest.raises(IntegrityError):
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO hosts (nome, addr, workspace_id) VALUES ('c', '10.0.0.1', 2)"))
+
+
+def test_migration_workspace_step_is_idempotent_and_creates_the_default_workspace():
+    from model.host import Host  # noqa: F401  (register models)
+    from model.scope_model import ScopeRule  # noqa: F401
+    from model.workspace_model import Workspace
+    from db.extensions import Base
+
+    engine = make_pre_workspace_engine()
+    Base.metadata.create_all(engine)  # creates `workspaces`, leaves the legacy tables alone
+
+    run_lightweight_migrations(engine)
+    run_lightweight_migrations(engine)
+
+    with engine.begin() as conn:
+        assert conn.execute(text('SELECT id, name FROM workspaces')).all() == [(1, 'default')]
+        assert conn.execute(text('SELECT count(*) FROM hosts')).scalar() == 1
+
+
+def test_migration_on_a_fresh_database_only_creates_the_default_workspace():
+    from db.extensions import Base
+    import model.host, model.scope_model, model.workspace_model  # noqa: F401,E401
+
+    engine = create_engine('sqlite:///:memory:')
+    Base.metadata.create_all(engine)
+
+    run_lightweight_migrations(engine)
+
+    with engine.begin() as conn:
+        assert conn.execute(text('SELECT id, name FROM workspaces')).all() == [(1, 'default')]

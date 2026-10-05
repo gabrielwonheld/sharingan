@@ -3,6 +3,7 @@ import subprocess
 from datetime import datetime, timezone
 
 from model.host import Host
+from model.workspace_model import DEFAULT_WORKSPACE_ID
 from model.service_model import ExploitMatch, ScanRun, Service, Vulnerability
 from phases.base import PhaseModule
 from phases.common import get_or_create_host
@@ -44,8 +45,10 @@ class ScanPhase(PhaseModule):
         min_cvss=7.0,
         rustscan_batch=4500,
         rustscan_timeout=3000,
+        workspace_id=DEFAULT_WORKSPACE_ID,
     ):
         self.session = db_session
+        self.workspace_id = workspace_id
         self.rustscan = rustscan
         self.nmap = nmap
         self.vulners = vulners
@@ -80,7 +83,7 @@ class ScanPhase(PhaseModule):
                 on_progress(step)
 
         self.last_searchsploit_error = None
-        host = get_or_create_host(self.session, name, target)
+        host = get_or_create_host(self.session, name, target, self.workspace_id)
         # Every scan is its own ScanRun: its services/vulnerabilities/exploits
         # belong to that run, and previous runs stay in the database as history
         # (the "current" view of a host is just its latest run — see

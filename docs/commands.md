@@ -11,7 +11,33 @@ help
 ```
 
 Prints the commands grouped by area — Overview, Recon, Scan, Web and Session —
-one table per area, with syntax and a one-line description.
+one table per area, with syntax and a one-line description. The prompt
+(`Sharingan [workspace] >`) shows which [workspace](#workspace-name-add-name-delete-name) you're in.
+
+## `workspace [<name> | add <name> | delete <name>]`
+
+Workspaces are projects: each one has its own hosts, everything the phases
+collected for them, and its own [scope](#scope-addexcluderemove-value). Use one
+per engagement so the same address can be worked on twice without the results
+mixing. The prompt shows the current workspace, the way a shell shows the
+current directory:
+
+```text
+Sharingan [default] > workspace add client-a
+Workspace 'client-a' created; now working in it.
+Sharingan [client-a] > scan web 10.0.0.1
+```
+
+| Form | Effect |
+|---|---|
+| `workspace` | Lists the workspaces (`*` marks the current one) with their host count. |
+| `workspace <name>` | Switches to that workspace. |
+| `workspace add <name>` | Creates a workspace **and switches to it**. Names use 1-40 letters, digits, `.`, `_` or `-`; `add` and `delete` are reserved. |
+| `workspace delete <name>` | Deletes the workspace with its hosts, everything collected for them and its scope. Asks for confirmation. `default` can't be deleted; deleting the current one returns to `default`. |
+
+Every command only sees the current workspace: `hosts`, `services`, `info`,
+`phases`, name lookups, `-d all` deletes and scope checks. The workspace is
+**not remembered between runs** — the console always starts in `default`.
 
 ## `phases [name|addr]`
 
@@ -61,7 +87,7 @@ Sharingan > whois example.com
 
 ## `scope [add|exclude|remove <value>]`
 
-Manages the engagement scope: the domains, IPs and CIDR ranges `scan` and
+Manages the scope of the **current [workspace](#workspace-name-add-name-delete-name)** — each workspace keeps its own rules: the domains, IPs and CIDR ranges `scan` and
 `recon` are allowed to touch. `scan`/`recon` check the scope **before**
 anything is sent to the target.
 

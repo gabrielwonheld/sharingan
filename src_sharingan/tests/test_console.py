@@ -1135,7 +1135,7 @@ def test_handle_scan_builds_the_scan_phase_with_the_session_options(mocker):
 
     console.command_scan(['alvo', '192.0.2.10'])
 
-    mock_phase_cls.assert_called_once_with(console.session_db, rustscan_batch=200, rustscan_timeout=9000)
+    mock_phase_cls.assert_called_once_with(console.session_db, rustscan_batch=200, rustscan_timeout=9000, workspace_id=1)
 
 
 def _scope_console():

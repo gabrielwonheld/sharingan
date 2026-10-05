@@ -8,7 +8,7 @@ once and `phases <host>` show what's still missing.
 ## One host, many results
 
 ```text
-                          Host  (identity = address)
+                  Workspace → Host  (identity = address within the workspace)
                            │
    ┌──────────┬────────────┼─────────────┬──────────────┬───────────┐
 WhoisRecord  Subdomain   ScanRun      CrawledPage    Finding   HarvestedEmail
@@ -24,9 +24,11 @@ text: `info` and `phases` simply ask the database for "every row whose
 
 ## What identifies a host: the address
 
-A host is identified by its **address** (`addr`), which is unique. The first
-command that touches an address creates the host; every later command, from any
-phase, reuses it.
+A host is identified by its **address** (`addr`) **within a workspace**: the
+address is unique per workspace. The first command that touches an address
+creates the host in the current workspace; every later command, from any phase,
+reuses it. The same address in another [workspace](commands.md#workspace-name-add-name-delete-name)
+is a different host.
 
 What each command uses as the address:
 
@@ -51,8 +53,9 @@ accepted wherever a command takes `<name|addr>`. It is not the identity.
   and adds the new results to that same host.
 - Several addresses can share a name (`web` for `10.0.0.1` and `10.0.0.2`).
 - When a command takes `<name|addr>`, Sharingan tries the **address first**,
-  then the name. If a name matches more than one host, the command stops and
-  asks for the address instead of guessing:
+  then the name, **inside the current workspace only**. If a name matches more
+  than one host there, the command stops and asks for the address instead of
+  guessing:
 
 ```text
 Sharingan > info web
@@ -82,14 +85,13 @@ older scans stay available through `scans` and `scan diff`.
 - **Addresses are case-sensitive.** `scan`, `whois` and `recon` use what you
   type, while `crawl` and `fuzz` lowercase the hostname, so `Example.com` and
   `example.com` can end up as two hosts. Type domains in lowercase.
-- **There are no workspaces yet.** Every project in the same database shares
-  hosts: scanning the same address for two engagements mixes their results,
-  and `hosts` lists both. To keep engagements apart today, give each one its
-  own database file:
+- **Workspaces keep projects apart.** `workspace add client-a` creates a
+  project and switches to it; its hosts, results and scope are invisible from
+  any other workspace, so scanning the same address for two clients gives two
+  separate hosts. Names only need to be unique within a workspace.
+  Pre-existing data lives in `default`. If you want a hard boundary on disk too
+  (to archive or hand over one project), give it its own database:
 
   ```bash
   DATABASE_URL="sqlite:////home/me/projects/client-a.db" uv run python src_sharingan/sharingan_repl.py
   ```
-
-  Use `scope` to keep each engagement's targets in bounds. Workspaces (like
-  msfconsole's) and the planned `asm <domain>` are the natural next step.
