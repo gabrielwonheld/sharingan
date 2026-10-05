@@ -39,6 +39,34 @@ Every command only sees the current workspace: `hosts`, `services`, `info`,
 `phases`, name lookups, `-d all` deletes and scope checks. The workspace is
 **not remembered between runs** — the console always starts in `default`.
 
+## `export [path]`
+
+Writes the **current [workspace](#workspace-name-add-name-delete-name)** as a
+Markdown report: its scope, a summary table (one row per host with counts) and
+one section per host with everything the phases collected — WHOIS, subdomains,
+services, vulnerabilities (by CVSS), exploits, scan history, crawled pages,
+emails and directory findings. Sections a host has no data for are left out.
+
+| Form | Effect |
+|---|---|
+| `export` | Writes `sharingan-<workspace>-<YYYYMMDD-HHMMSS>.md` in the directory you started the console from. |
+| `export <path>` | Writes to that file. A path with spaces works as typed. |
+| `export <directory>` | Writes the default filename inside that directory. |
+
+If the file already exists you're asked before it's overwritten; a directory
+that doesn't exist is reported, not created.
+
+```text
+Sharingan [client-a] > export ~/reports/client-a.md
+Report of workspace 'client-a' (3 host(s)) written to /home/me/reports/client-a.md
+```
+
+Unlike `info`, the report is the full dump — nothing is capped. Because banners,
+page URLs and emails come from the scanned targets, table cells have `|` and
+newlines neutralised and `<`/`>` escaped, so a hostile value can't break a
+table or inject HTML into a Markdown viewer. The report is a plain file in your
+filesystem: treat it as sensitive client data.
+
 ## `phases [name|addr]`
 
 Lists the methodology phases (Recon, Scan, Web crawl, Fuzz): how much traffic

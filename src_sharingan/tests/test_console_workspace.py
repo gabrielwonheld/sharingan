@@ -326,3 +326,100 @@ def test_scan_is_built_for_the_current_workspace(mocker):
     console.handle_scan('n', '10.0.0.1')
 
     assert phase_cls.call_args.kwargs['workspace_id'] == console.workspace_id != 1
+
+
+# --- export ----------------------------------------------------------------
+
+def test_export_without_a_path_writes_a_timestamped_file_in_the_current_directory(tmp_path, monkeypatch):
+    import re
+
+    console, session = make_workspace_console()
+    session.add(Host(nome='alvo', addr='10.0.0.1'))
+    session.commit()
+    monkeypatch.chdir(tmp_path)
+
+    console.command_export([])
+
+    files = list(tmp_path.glob('sharingan-default-*.md'))
+    assert len(files) == 1
+    assert re.fullmatch(r'sharingan-default-\d{8}-\d{6}\.md', files[0].name)
+    content = files[0].read_text(encoding='utf-8')
+    assert content.startswith('# Sharingan report: default')
+    assert '10.0.0.1' in content
+    assert str(files[0]) in text(console)
+
+
+def test_export_uses_the_current_workspace_name_and_only_its_hosts(tmp_path, monkeypatch):
+    console, session = make_workspace_console()
+    session.add(Host(nome='mine', addr='1.1.1.1', workspace_id=1))
+    session.commit()
+    console.command_workspace(['add', 'cliente-a'])
+    session.add(Host(nome='theirs', addr='2.2.2.2', workspace_id=console.workspace_id))
+    session.commit()
+    monkeypatch.chdir(tmp_path)
+
+    console.command_export([])
+
+    (path,) = tmp_path.glob('sharingan-cliente-a-*.md')
+    content = path.read_text(encoding='utf-8')
+    assert '2.2.2.2' in content and '1.1.1.1' not in content
+
+
+def test_export_to_an_explicit_path(tmp_path):
+    console, session = make_workspace_console()
+    target = tmp_path / 'report.md'
+
+    console.command_export([str(target)])
+
+    assert target.read_text(encoding='utf-8').startswith('# Sharingan report: default')
+
+
+def test_export_path_with_spaces_is_taken_as_one_path(tmp_path):
+    console, _ = make_workspace_console()
+    (tmp_path / 'my reports').mkdir()
+    target = tmp_path / 'my reports' / 'client a.md'
+
+    console.command_export(str(target).split())
+
+    assert target.exists()
+
+
+def test_export_to_a_directory_puts_the_default_filename_inside_it(tmp_path):
+    console, _ = make_workspace_console()
+
+    console.command_export([str(tmp_path)])
+
+    assert len(list(tmp_path.glob('sharingan-default-*.md'))) == 1
+
+
+def test_export_asks_before_overwriting_an_existing_file(tmp_path, mocker):
+    console, _ = make_workspace_console()
+    target = tmp_path / 'report.md'
+    target.write_text('keep me', encoding='utf-8')
+    confirm = mocker.patch('view.console.Confirm.ask', return_value=False)
+
+    console.command_export([str(target)])
+    assert target.read_text(encoding='utf-8') == 'keep me'
+    assert 'Cancelled' in text(console)
+
+    confirm.return_value = True
+    console.command_export([str(target)])
+    assert target.read_text(encoding='utf-8').startswith('# Sharingan report')
+
+
+def test_export_reports_a_missing_directory_instead_of_crashing(tmp_path):
+    console, _ = make_workspace_console()
+
+    console.command_export([str(tmp_path / 'nope' / 'report.md')])
+
+    assert "doesn't exist" in text(console)
+    assert not (tmp_path / 'nope').exists()
+
+
+def test_export_reports_a_write_failure(tmp_path, mocker):
+    console, _ = make_workspace_console()
+    mocker.patch('pathlib.Path.write_text', side_effect=PermissionError('denied'))
+
+    console.command_export([str(tmp_path / 'report.md')])
+
+    assert 'Could not write' in text(console) and 'denied' in text(console)

@@ -1,5 +1,7 @@
 import re
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlparse
 
 from prompt_toolkit import PromptSession
@@ -13,6 +15,7 @@ from rich.table import Table
 
 from db.database import init_db, get_session
 from core.context import SessionContext
+from core.report import build_workspace_report
 from core.scope import decide, parse_scope_value
 from phases.fuzz.fuzz_phase import FuzzPhase
 from phases.recon.recon_phase import ReconPhase
@@ -91,6 +94,7 @@ class InteractiveConsole:
             'crawl': self.command_crawl,
             'findings': self.command_findings,
             'workspace': self.command_workspace,
+            'export': self.command_export,
             'phases': self.command_phases,
             'fases': self.command_phases,
             'info': self.command_info,
@@ -107,7 +111,7 @@ class InteractiveConsole:
         self.completer = WordCompleter([
             'whois', 'scan', 'scans', 'recon', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
             'hosts', 'services', 'vulns', 'subdomains', 'fuzz', 'crawl',
-            'findings', 'pages', 'emails', 'phases', 'fases', 'info', 'workspace',
+            'findings', 'pages', 'emails', 'phases', 'fases', 'info', 'workspace', 'export',
         ], ignore_case=True)
 
         self.style = Style.from_dict({
@@ -653,6 +657,36 @@ class InteractiveConsole:
             self.console.print(f"[green]Workspace: {workspace.name}[/green]")
         else:
             self.console.print("[red]Usage: workspace [<name> | add <name> | delete <name>][/red]")
+
+    def command_export(self, args):
+        """`export [path]`: writes the current workspace (every host and what the
+        phases collected) as a Markdown report. With no path, a timestamped file
+        goes in the current directory; a directory path gets that file inside it."""
+        now = datetime.now(timezone.utc)
+        default_name = f"sharingan-{self.workspace_name}-{now.strftime('%Y%m%d-%H%M%S')}.md"
+        path = Path(' '.join(args)).expanduser() if args else Path(default_name)
+        if path.is_dir():
+            path = path / default_name
+        if not path.parent.exists():
+            self.console.print(f"[red]Directory '{path.parent}' doesn't exist.[/red]")
+            return
+        if path.exists() and not Confirm.ask(
+            f"'{path}' already exists. Overwrite?", default=False, console=self.console,
+        ):
+            self.console.print("[yellow]Cancelled.[/yellow]")
+            return
+
+        report = build_workspace_report(self.session_db, self.workspace_id, self.workspace_name, now=now)
+        try:
+            path.write_text(report, encoding='utf-8')
+        except OSError as e:
+            self.console.print(f"[red]Could not write '{path}': {e}[/red]")
+            return
+        hosts = self._hosts_query().count()
+        self.console.print(
+            f"[green]Report of workspace '{self.workspace_name}' ({hosts} host(s)) written to "
+            f"{path.resolve()}[/green]"
+        )
 
     def _print_workspaces(self):
         table = Table(title="Workspaces")
