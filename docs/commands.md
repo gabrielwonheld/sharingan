@@ -10,7 +10,41 @@ Autocomplete (Tab) and the `help` command list the same set.
 help
 ```
 
-Prints the command table (name, syntax, one-line description).
+Prints the commands grouped by area — Overview, Recon, Scan, Web and Session —
+one table per area, with syntax and a one-line description.
+
+## `phases [name|addr]`
+
+Lists the methodology phases (Recon, Scan, Web crawl, Fuzz): how much traffic
+each one sends to the target, the command that runs it, the external tools it
+uses and which commands list what it saved. `fases` is an alias.
+
+With a host (`phases myserver`), an extra **Status** column shows which phases
+already ran against it — with a short summary of what was saved — and which are
+still missing, with the command to run next.
+
+```text
+Sharingan > phases
+Sharingan > phases myserver
+```
+
+A planned `asm <domain>` command (run every phase from just a domain) is
+mentioned at the bottom; it isn't available yet.
+
+## `info <name|addr>`
+
+Everything collected about one host, phase by phase, in one place: the latest
+WHOIS record, subdomains, the current services (with CVE and exploit counts per
+port), the top vulnerabilities by CVSS, a crawl summary with harvested emails,
+and fuzz findings. A phase that hasn't run says so and names the command to run.
+
+Each section is capped (25 subdomains, 10 vulnerabilities, 15 emails, 20
+findings) and points to the dedicated command (`subdomains`, `vulns`, `emails`,
+`findings`) for the full list. Services always reflect the host's latest scan.
+
+```text
+Sharingan > info myserver
+```
 
 ## `whois <domain>`
 

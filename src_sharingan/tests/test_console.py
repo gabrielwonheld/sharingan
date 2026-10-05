@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from rich.markup import escape
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -1800,3 +1801,222 @@ def test_listing_command_delete_without_target_shows_usage(command, seeder, titl
     getattr(console, f'command_{command}')(['-d'])
 
     assert any(f'Usage: {command} -d' in t for t in _printed(console))
+
+
+# --- help by area, `phases`, `info` ---------------------------------------
+
+def test_help_prints_one_table_per_area_covering_every_command():
+    from view.catalog import HELP_SECTIONS
+
+    console = make_console(make_session())
+
+    console.command_help([])
+
+    for section in HELP_SECTIONS:
+        syntaxes = _table_cell_values(console.console.print, section.title, 'Command')
+        assert syntaxes == [escape(syntax) for syntax, _ in section.commands]
+
+
+def test_help_renders_optional_arguments_instead_of_swallowing_them_as_markup():
+    """`[name|addr]` looks like a rich style tag, so unescaped it vanished from
+    the output (`subdomains  [-d ...]`, `scope` with no arguments at all)."""
+    import io
+
+    from rich.console import Console as RichConsole
+
+    buffer = io.StringIO()
+    console = make_console(make_session())
+    console.console = RichConsole(file=buffer, width=200, force_terminal=False)
+
+    console.command_help([])
+
+    rendered = buffer.getvalue()
+    assert 'scope [add|exclude|remove <value>]' in rendered
+    assert 'subdomains [name|addr] [-d <name|addr|all>]' in rendered
+    assert 'phases [name|addr]' in rendered
+
+
+def test_help_points_to_phases_and_info():
+    console = make_console(make_session())
+
+    console.command_help([])
+
+    text = ' '.join(_printed(console))
+    assert "'phases'" in text and "'info" in text
+
+
+def test_phases_lists_every_phase_with_its_command():
+    from view.catalog import PHASES
+
+    console = make_console(make_session())
+
+    console.command_phases([])
+
+    assert _table_cell_values(console.console.print, 'Phases', 'Phase') == [p.title for p in PHASES]
+    assert _table_cell_values(console.console.print, 'Phases', 'Status') is None
+    assert any('Planned' in t for t in _printed(console))
+
+
+def test_phases_unknown_host_shows_error():
+    console = make_console(make_session())
+
+    console.command_phases(['nope'])
+
+    assert any('not found' in t for t in _printed(console))
+
+
+def test_phases_for_a_host_marks_what_ran_and_what_is_missing():
+    from model.subdomain_model import Subdomain
+
+    session = make_session()
+    console = make_console(session)
+    host = Host(nome='alvo', addr='example.com')
+    session.add(host)
+    session.commit()
+    session.add(Subdomain(host_id=host.id, name='api.example.com'))
+    session.commit()
+
+    console.command_phases(['alvo'])
+
+    status = dict(zip(
+        _table_cell_values(console.console.print, 'Phases', 'Phase'),
+        _table_cell_values(console.console.print, 'Phases', 'Status'),
+    ))
+    assert 'done' in status['Recon'] and '1 subdomain' in status['Recon']
+    assert 'not run' in status['Scan'] and 'scan <name> <ip/host>' in status['Scan']
+    assert 'not run' in status['Web crawl'] and 'not run' in status['Fuzz']
+
+
+def test_fases_is_an_alias_of_phases(mocker):
+    mocker.patch('view.console.get_session')
+    mocker.patch('view.console.init_db')
+    mocker.patch('view.console.PromptSession')
+
+    console = InteractiveConsole()
+
+    assert console.cmds['fases'] == console.cmds['phases']
+
+
+def _seed_everything(session):
+    from datetime import datetime
+
+    from model.crawl_model import CrawledPage, HarvestedEmail
+    from model.finding_model import Finding
+    from model.service_model import ScanRun
+    from model.subdomain_model import Subdomain
+    from model.whois_model import WhoisRecord
+
+    host = Host(nome='alvo', addr='example.com')
+    session.add(host)
+    session.commit()
+    session.add(WhoisRecord(
+        domain='example.com', host_id=host.id, registrar='Test Registrar',
+        creation_date=datetime(2000, 1, 1), expiration_date=datetime(2030, 1, 1),
+    ))
+    session.add_all([Subdomain(host_id=host.id, name=n) for n in ('api.example.com', 'www.example.com')])
+    run = ScanRun(host_id=host.id, status='ok')
+    session.add(run)
+    session.commit()
+    service = Service(host_id=host.id, scan_run_id=run.id, port=22, protocol='tcp', state='open',
+                      product='OpenSSH', version='9.6')
+    session.add(service)
+    session.commit()
+    session.add(Vulnerability(service_id=service.id, cve='CVE-2024-6387', cvss=8.1))
+    session.add(ExploitMatch(service_id=service.id, title='OpenSSH exploit', edb_id='1'))
+    session.add_all([
+        CrawledPage(host_id=host.id, url='http://example.com/', status_code=200, depth=0),
+        CrawledPage(host_id=host.id, url='http://example.com/a', status_code=404, depth=1),
+        HarvestedEmail(host_id=host.id, email='admin@example.com', source_url='http://example.com/'),
+        Finding(host_id=host.id, url='http://example.com', path='/admin', status_code=200, size=10),
+    ])
+    session.commit()
+    return host
+
+
+def test_info_requires_a_host():
+    console = make_console(make_session())
+
+    console.command_info([])
+
+    assert any('Usage: info' in t for t in _printed(console))
+
+
+def test_info_unknown_host_shows_error():
+    console = make_console(make_session())
+
+    console.command_info(['nope'])
+
+    assert any('not found' in t for t in _printed(console))
+
+
+def test_info_gathers_every_phase_for_the_host():
+    session = make_session()
+    console = make_console(session)
+    _seed_everything(session)
+    printed = console.console.print
+
+    console.command_info(['alvo'])
+
+    assert 'Test Registrar' in _table_cell_values(printed, 'WHOIS', 'Value')
+    assert _table_cell_values(printed, 'Subdomains', 'Name') == ['api.example.com', 'www.example.com']
+    assert _table_cell_values(printed, 'Services', 'Port') == ['22']
+    assert _table_cell_values(printed, 'Services', 'CVEs') == ['1']
+    assert _table_cell_values(printed, 'Services', 'Exploits') == ['1']
+    assert _table_cell_values(printed, 'Top vulnerabilities', 'CVE') == ['CVE-2024-6387']
+    assert _table_cell_values(printed, 'Emails', 'Email') == ['admin@example.com']
+    assert _table_cell_values(printed, 'Findings', 'Path') == ['/admin']
+    assert any('2 page(s)' in t and '200' in t and '404' in t for t in _printed(console))
+
+
+def test_info_on_a_host_nothing_ran_against_says_what_to_run():
+    session = make_session()
+    console = make_console(session)
+    session.add(Host(nome='alvo', addr='example.com'))
+    session.commit()
+
+    console.command_info(['alvo'])
+
+    text = ' '.join(_printed(console))
+    for hint in ('whois <domain>', 'recon <name> <domain>', 'scan <name> <ip/host>',
+                 'crawl <name> <url>', 'fuzz <name> <url>'):
+        assert hint in text
+    assert _table_cell_values(console.console.print, 'Services', 'Port') is None
+
+
+def test_info_shows_only_the_current_scan_run_services():
+    from model.service_model import ScanRun
+
+    session = make_session()
+    console = make_console(session)
+    host = Host(nome='alvo', addr='example.com')
+    session.add(host)
+    session.commit()
+    old, new = ScanRun(host_id=host.id, status='ok'), ScanRun(host_id=host.id, status='ok')
+    session.add_all([old, new])
+    session.commit()
+    session.add_all([
+        Service(host_id=host.id, scan_run_id=old.id, port=21, protocol='tcp', state='open'),
+        Service(host_id=host.id, scan_run_id=new.id, port=22, protocol='tcp', state='open'),
+    ])
+    session.commit()
+
+    console.command_info(['alvo'])
+
+    assert _table_cell_values(console.console.print, 'Services', 'Port') == ['22']
+
+
+def test_info_caps_long_sections_and_points_to_the_full_listing():
+    from model.subdomain_model import Subdomain
+
+    session = make_session()
+    console = make_console(session)
+    host = Host(nome='alvo', addr='example.com')
+    session.add(host)
+    session.commit()
+    session.add_all([Subdomain(host_id=host.id, name=f's{i:02d}.example.com') for i in range(30)])
+    session.commit()
+
+    console.command_info(['alvo'])
+
+    assert len(_table_cell_values(console.console.print, 'Subdomains', 'Name')) == 25
+    assert any('+5 more' in t and "'subdomains" in t for t in _printed(console))

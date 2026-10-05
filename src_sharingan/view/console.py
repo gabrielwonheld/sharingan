@@ -6,6 +6,7 @@ from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from rich.console import Console as RichConsole
+from rich.markup import escape
 from rich.prompt import Confirm
 from rich.table import Table
 
@@ -23,6 +24,8 @@ from model.host import Host
 from model.scope_model import ScopeRule
 from model.service_model import ScanRun, Service, Vulnerability, current_services_filter
 from model.subdomain_model import Subdomain
+from model.whois_model import WhoisRecord
+from view.catalog import HELP_SECTIONS, PHASES, PLANNED_NOTE
 from phases.scan.scan_phase import ScanPhase
 from phases.scan.tools.installer import ToolInstaller
 
@@ -31,6 +34,13 @@ from phases.scan.tools.installer import ToolInstaller
 # version ever published. Capping keeps the table scannable; anyone who wants
 # the full list can still run `searchsploit <product>` themselves.
 EXPLOIT_DISPLAY_CAP = 10
+
+# `info` is an overview, not the full listing: each section is capped and
+# points to the dedicated command for the rest.
+INFO_CAP_SUBDOMAINS = 25
+INFO_CAP_VULNS = 10
+INFO_CAP_EMAILS = 15
+INFO_CAP_FINDINGS = 20
 
 
 def _exploit_matched_cve(exploit, known_cves: set) -> str | None:
@@ -73,6 +83,9 @@ class InteractiveConsole:
             'fuzz': self.command_fuzz,
             'crawl': self.command_crawl,
             'findings': self.command_findings,
+            'phases': self.command_phases,
+            'fases': self.command_phases,
+            'info': self.command_info,
             'pages': self.command_pages,
             'emails': self.command_emails,
             'hosts': self.command_hosts,
@@ -86,7 +99,7 @@ class InteractiveConsole:
         self.completer = WordCompleter([
             'whois', 'scan', 'scans', 'recon', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
             'hosts', 'services', 'vulns', 'subdomains', 'fuzz', 'crawl',
-            'findings', 'pages', 'emails',
+            'findings', 'pages', 'emails', 'phases', 'fases', 'info',
         ], ignore_case=True)
 
         self.style = Style.from_dict({
@@ -554,6 +567,211 @@ class InteractiveConsole:
         for subdomain in subdomains:
             table.add_row(subdomain.host.addr, subdomain.name, subdomain.discovered_at.strftime('%Y-%m-%d %H:%M:%S'))
         self.console.print(table)
+
+    # -----------------------------------------------------------------
+    # `phases` / `info` — orientation: what phases exist, what ran against a
+    # host, and everything collected about it in one place.
+    # -----------------------------------------------------------------
+
+    def _phase_status(self, host: Host) -> dict[str, str | None]:
+        """For each phase key: a short summary of what it saved for `host`, or
+        None when it hasn't run."""
+        db = self.session_db
+
+        def count(model) -> int:
+            return db.query(model).filter_by(host_id=host.id).count()
+
+        whois, subdomains = count(WhoisRecord), count(Subdomain)
+        recon = None
+        if whois or subdomains:
+            recon = f"{whois} whois record(s), {subdomains} subdomain(s)"
+
+        last_run = (
+            db.query(ScanRun).filter_by(host_id=host.id).filter(ScanRun.status != 'failed')
+            .order_by(ScanRun.id.desc()).first()
+        )
+        services = db.query(Service).filter(Service.host_id == host.id, current_services_filter()).count()
+        scan = None
+        if last_run or services:
+            when = f", {self._timestamp(last_run.started_at)}" if last_run else ''
+            scan = f"{services} service(s){when}"
+
+        pages, emails, findings = count(CrawledPage), count(HarvestedEmail), count(Finding)
+        return {
+            'recon': recon,
+            'scan': scan,
+            'crawl': f"{pages} page(s), {emails} email(s)" if pages or emails else None,
+            'fuzz': f"{findings} finding(s)" if findings else None,
+        }
+
+    def command_phases(self, args):
+        """`phases [name|addr]`: the methodology phases and how to run each;
+        with a host, also which already ran on it and which are still missing."""
+        status = None
+        if args:
+            host = self._find_host_or_warn(args[0])
+            if not host:
+                return
+            status = self._phase_status(host)
+
+        table = Table(title="Phases", title_justify="left")
+        table.add_column("Phase", style="cyan")
+        table.add_column("Traffic to target", style="white")
+        table.add_column("Run with", style="white")
+        table.add_column("Tools", style="white")
+        table.add_column("See results with", style="white")
+        if status is not None:
+            table.add_column("Status", style="white")
+        for phase in PHASES:
+            row = [phase.title, phase.traffic, phase.run_with, phase.tools, phase.results]
+            if status is not None:
+                detail = status[phase.key]
+                row.append(f"[green]done[/green] — {detail}" if detail
+                           else f"[yellow]not run[/yellow] — {phase.not_run_hint}")
+            table.add_row(*row)
+        self.console.print(table)
+        self.console.print(f"[dim]{PLANNED_NOTE}[/dim]")
+
+    def _not_run(self, label: str, hint: str) -> None:
+        self.console.print(f"[dim]{label}: not run yet — {hint}[/dim]")
+
+    def _more_note(self, hidden: int, command: str, host: Host) -> None:
+        if hidden > 0:
+            self.console.print(f"[dim]+{hidden} more — run '{command} {host.addr}' for the full list.[/dim]")
+
+    def command_info(self, args):
+        """`info <name|addr>`: everything collected about one host, phase by phase."""
+        if not args:
+            self.console.print("[red]Usage: info <name|addr>[/red]")
+            return
+        host = self._find_host_or_warn(args[0])
+        if not host:
+            return
+
+        self.console.print(f"[bold]{host.nome}[/bold] ({host.addr})")
+        self._info_recon(host)
+        self._info_scan(host)
+        self._info_web(host)
+        self._info_fuzz(host)
+        self.console.print("[dim]Run 'phases " + host.addr + "' to see which phases are still missing.[/dim]")
+
+    def _info_recon(self, host: Host) -> None:
+        db = self.session_db
+        whois = db.query(WhoisRecord).filter_by(host_id=host.id).order_by(WhoisRecord.id.desc()).first()
+        if whois:
+            table = Table(title="WHOIS", title_justify="left")
+            table.add_column("Property", justify="right", style="cyan")
+            table.add_column("Value", style="white")
+            table.add_row("Registrar", str(whois.registrar))
+            table.add_row("Creation Date", str(whois.creation_date))
+            table.add_row("Expiration Date", str(whois.expiration_date))
+            self.console.print(table)
+        else:
+            self._not_run("WHOIS", "whois <domain>")
+
+        subdomains = db.query(Subdomain).filter_by(host_id=host.id).order_by(Subdomain.name).all()
+        if subdomains:
+            table = Table(title="Subdomains", title_justify="left")
+            table.add_column("Name", style="cyan")
+            for subdomain in subdomains[:INFO_CAP_SUBDOMAINS]:
+                table.add_row(subdomain.name)
+            self.console.print(table)
+            self._more_note(len(subdomains) - INFO_CAP_SUBDOMAINS, 'subdomains', host)
+        else:
+            self._not_run("Subdomains", "recon <name> <domain>")
+
+    def _info_scan(self, host: Host) -> None:
+        db = self.session_db
+        services = (
+            db.query(Service).filter(Service.host_id == host.id, current_services_filter())
+            .order_by(Service.port).all()
+        )
+        last_run = db.query(ScanRun).filter_by(host_id=host.id).order_by(ScanRun.id.desc()).first()
+        if not services:
+            if last_run:
+                self.console.print(
+                    f"[*] Last scan ({last_run.status}, {self._timestamp(last_run.started_at)}) found no open ports."
+                )
+            else:
+                self._not_run("Scan", "scan <name> <ip/host>")
+            return
+
+        table = Table(title="Services", title_justify="left")
+        table.add_column("Port", justify="right", style="cyan")
+        table.add_column("State", style="white")
+        table.add_column("Service", style="white")
+        table.add_column("CVEs", justify="right")
+        table.add_column("Exploits", justify="right")
+        vulns = []
+        for service in services:
+            label = f"{service.product or service.name or '?'} {service.version or ''}".strip()
+            table.add_row(
+                str(service.port), service.state, label,
+                str(len(service.vulnerabilities)), str(len(service.exploit_matches)),
+            )
+            vulns.extend((service, v) for v in service.vulnerabilities)
+        self.console.print(table)
+
+        if last_run:
+            self.console.print(
+                f"[*] Last scan: {last_run.status}, {self._timestamp(last_run.started_at)} "
+                f"(run {last_run.id}); 'scans {host.addr}' shows the history."
+            )
+        if vulns:
+            vulns.sort(key=lambda pair: pair[1].cvss or 0, reverse=True)
+            table = Table(title="Top vulnerabilities", title_justify="left")
+            table.add_column("CVE", style="cyan")
+            table.add_column("CVSS", justify="right")
+            table.add_column("Port", justify="right")
+            for service, vuln in vulns[:INFO_CAP_VULNS]:
+                table.add_row(vuln.cve, str(vuln.cvss) if vuln.cvss is not None else '-', str(service.port))
+            self.console.print(table)
+            self._more_note(len(vulns) - INFO_CAP_VULNS, 'vulns', host)
+
+    def _info_web(self, host: Host) -> None:
+        db = self.session_db
+        pages = db.query(CrawledPage).filter_by(host_id=host.id).all()
+        emails = db.query(HarvestedEmail).filter_by(host_id=host.id).order_by(HarvestedEmail.email).all()
+        if not pages and not emails:
+            self._not_run("Web crawl", "crawl <name> <url>")
+            return
+
+        codes: dict = {}
+        for page in pages:
+            codes[page.status_code] = codes.get(page.status_code, 0) + 1
+        breakdown = ', '.join(f"{code}: {n}" for code, n in sorted(codes.items(), key=lambda kv: str(kv[0])))
+        self.console.print(f"[*] Crawl: {len(pages)} page(s) ({breakdown}); 'pages {host.addr}' lists them.")
+
+        if emails:
+            table = Table(title="Emails", title_justify="left")
+            table.add_column("Email", style="cyan")
+            table.add_column("Found on", style="white")
+            for email in emails[:INFO_CAP_EMAILS]:
+                table.add_row(email.email, email.source_url or '-')
+            self.console.print(table)
+            self._more_note(len(emails) - INFO_CAP_EMAILS, 'emails', host)
+
+    def _info_fuzz(self, host: Host) -> None:
+        findings = (
+            self.session_db.query(Finding).filter_by(host_id=host.id)
+            .order_by(Finding.url, Finding.path).all()
+        )
+        if not findings:
+            self._not_run("Fuzz", "fuzz <name> <url>")
+            return
+
+        table = Table(title="Findings", title_justify="left")
+        table.add_column("Path", style="cyan")
+        table.add_column("Code", justify="right")
+        table.add_column("Size", justify="right")
+        table.add_column("Redirect", style="white")
+        for finding in findings[:INFO_CAP_FINDINGS]:
+            table.add_row(
+                finding.path, str(finding.status_code),
+                str(finding.size) if finding.size is not None else '-', finding.redirect or '-',
+            )
+        self.console.print(table)
+        self._more_note(len(findings) - INFO_CAP_FINDINGS, 'findings', host)
 
     def _list_or_delete_rows(self, args, command, model, noun, run_hint, title, columns, row_values, order_by):
         """Shared by `findings`/`pages`/`emails` (same shape as `subdomains`): no
@@ -1063,27 +1281,15 @@ class InteractiveConsole:
         self.console.print("[green]Scan result saved to database![/green]")
 
     def print_help(self, args=None):
-        table = Table(title="Available Commands")
-        table.add_column("Command", style="cyan")
-        table.add_column("Description", style="white")
-        table.add_row("whois <domain>", "WHOIS lookup of a domain (scope-checked); saved and linked to its host.")
-        table.add_row("scan <name> <ip/host>", "Rustscan + nmap -sV + searchsploit; save to DB.")
-        table.add_row("scope [add|exclude|remove <value>]", "Show or edit the scope (domain, IP or CIDR). Scans outside it are blocked.")
-        table.add_row("scans [name|addr]", "List scan runs (history), optionally for one host.")
-        table.add_row("recon <name> <domain>", "Passive subdomain discovery (subfinder); shows new vs. known.")
-        table.add_row("subdomains [name|addr] [-d <name|addr|all>]", "List subdomains found by recon, or delete them.")
-        table.add_row("findings [name|addr] [-d <name|addr|all>]", "List paths found by fuzz, or delete them.")
-        table.add_row("fuzz <name> <url>", "Directory/file enumeration (gobuster); needs 'fuzz_wordlist' set.")
-        table.add_row("crawl <name> <url>", "Bounded crawl of a site: pages and emails; scope-checked, see spider_* options.")
-        table.add_row("pages [name|addr] [-d <name|addr|all>]", "List pages found by crawl, or delete them.")
-        table.add_row("emails [name|addr] [-d <name|addr|all>]", "List emails found by crawl, or delete them.")
-        table.add_row("scan diff <name|addr>", "Compare the host's last two finished scans.")
-        table.add_row("hosts [-d <name|addr|all>]", "List hosts, or delete one host (cascades) / all hosts.")
-        table.add_row("services [name|addr] [-d <name|addr|all>]", "List services (optionally by host), or delete them.")
-        table.add_row("vulns [name|addr] [-d <name|addr|all>]", "List vulnerabilities (optionally by host), or delete them.")
-        table.add_row("set <option> <value>", "Set a session option (see 'options' for the full list).")
-        table.add_row("unset <option>", "Reset a session option to its default.")
-        table.add_row("options", "Show session options, their defaults and what they do.")
-        table.add_row("clear", "Clear the terminal screen.")
-        table.add_row("exit / quit", "Exit the console.")
-        self.console.print(table)
+        for section in HELP_SECTIONS:
+            table = Table(title=section.title, title_justify="left")
+            table.add_column("Command", style="cyan")
+            table.add_column("Description", style="white")
+            for syntax, description in section.commands:
+                # `[name|addr]` would be read as a rich style tag and vanish
+                table.add_row(escape(syntax), description)
+            self.console.print(table)
+        self.console.print(
+            "[dim]New here? 'phases' shows the workflow; 'info <host>' shows everything "
+            "collected about a host.[/dim]"
+        )
