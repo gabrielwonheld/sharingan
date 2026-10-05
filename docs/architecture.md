@@ -42,6 +42,8 @@ real subprocess, or a real binary.**
 
 ## Data model
 
+How the phases share one `Host` per address is explained in [Hosts and phases](hosts-and-phases.md).
+
 - `Host` — one row per scanned/reconned address (the address is the
   identity; the name is just a label).
 - `ScanRun` — one row per `scan` execution. `Service` rows (and, through

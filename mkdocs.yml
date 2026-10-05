@@ -32,5 +32,6 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - Commands: commands.md
+  - Hosts and phases: hosts-and-phases.md
   - Session options: options.md
   - Architecture: architecture.md

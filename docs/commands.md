@@ -17,7 +17,7 @@ one table per area, with syntax and a one-line description.
 
 Lists the methodology phases (Recon, Scan, Web crawl, Fuzz): how much traffic
 each one sends to the target, the command that runs it, the external tools it
-uses and which commands list what it saved. `fases` is an alias.
+uses and which commands list what it saved (see [Hosts and phases](hosts-and-phases.md)). `fases` is an alias.
 
 With a host (`phases myserver`), an extra **Status** column shows which phases
 already ran against it — with a short summary of what was saved — and which are
@@ -269,6 +269,9 @@ Sharingan > crawl myserver http://example.com/
   crawls of the same host.
 
 ## `hosts [-d <name|addr|all>]`
+
+A host is identified by its address; the name is only a label. See [Hosts and
+phases](hosts-and-phases.md) for how every phase attaches its results to a host.
 
 | Form | Effect |
 |---|---|
