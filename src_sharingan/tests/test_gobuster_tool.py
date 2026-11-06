@@ -130,6 +130,46 @@ def test_enumerate_auto_calibration_gives_up_after_one_retry():
     assert len(runner.calls) == 4
 
 
+def test_enumerate_reports_a_connectivity_failure_distinctly_from_a_wildcard():
+    # Real repro: after aggressive fuzzing the target firewalled our IP, so gobuster
+    # timed out connecting. The error must NOT talk about wildcards/exclude_length
+    # (misleading here) — it should name the connectivity/block cause.
+    runner = fake_runner()
+    runner.queue.append((1, '', ''))  # normal run fails
+    runner.queue.append((                                                 # capture run
+        1, '',
+        'Error: error on running gobuster: unable to connect to https://example.com/: '
+        'Get "https://example.com/": context deadline exceeded '
+        '(Client.Timeout exceeded while awaiting headers)\n',
+    ))
+    with _available():
+        with pytest.raises(GobusterError, match='connect'):
+            GobusterTool.enumerate('https://example.com', '/tmp/words.txt', runner=runner)
+
+
+def test_connectivity_failure_message_does_not_mention_exclude_length():
+    runner = fake_runner()
+    runner.queue.append((1, '', ''))
+    runner.queue.append((1, '', 'unable to connect to http://x/: connection refused\n'))
+    with _available():
+        try:
+            GobusterTool.enumerate('http://x', '/tmp/words.txt', runner=runner)
+        except GobusterError as e:
+            assert 'exclude_length' not in str(e)
+            assert 'fuzz_threads' in str(e)
+        else:
+            pytest.fail('expected GobusterError')
+
+
+def test_looks_like_connectivity_failure_matches_known_phrases():
+    assert GobusterTool._looks_like_connectivity_failure('context deadline exceeded') is True
+    assert GobusterTool._looks_like_connectivity_failure('unable to connect to host') is True
+    assert GobusterTool._looks_like_connectivity_failure('connection refused') is True
+    assert GobusterTool._looks_like_connectivity_failure('no such host') is True
+    assert GobusterTool._looks_like_connectivity_failure('the server returns a status code') is False
+    assert GobusterTool._looks_like_connectivity_failure('') is False
+
+
 def test_enumerate_strips_ansi_escapes_from_result_lines():
     stdout = '\r\x1b[2K/secret.txt           (Status: 200) [Size: 3]\n'
     runner = fake_runner(stdout=stdout)

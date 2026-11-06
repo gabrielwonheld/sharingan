@@ -162,7 +162,43 @@ class GobusterTool:
                 status_codes=status_codes, exclude_length=str(length),
                 timeout=timeout, auto_calibrate=False, on_notice=on_notice, runner=run,
             )
+
+        # A connection timeout/refusal is a different failure than a wildcard — and
+        # a common one right after aggressive fuzzing, when the target firewalls the
+        # source IP. Say that, instead of the misleading "set fuzz_exclude_length".
+        if length is None and cls._looks_like_connectivity_failure(stderr):
+            raise GobusterError(cls._connectivity_message(url))
+
         raise GobusterError(cls._failure_message(exclude_length, length))
+
+    # gobuster's own wording when it can't reach the target (Go's net/http): a
+    # timeout, a refused connection, or an unresolvable/unreachable host.
+    _CONNECTIVITY_MARKERS = (
+        'context deadline exceeded',
+        'client.timeout',
+        'unable to connect',
+        'connection refused',
+        'no such host',
+        'no route to host',
+        'network is unreachable',
+    )
+
+    @classmethod
+    def _looks_like_connectivity_failure(cls, text: str) -> bool:
+        if not text:
+            return False
+        low = text.lower()
+        return any(marker in low for marker in cls._CONNECTIVITY_MARKERS)
+
+    @staticmethod
+    def _connectivity_message(url: str) -> str:
+        return (
+            f"gobuster could not connect to {url} (timeout/refused). The target may be "
+            'down or — common right after fuzzing — may have blocked your source IP '
+            '(firewall/fail2ban). Check connectivity (e.g. curl the URL), wait for any '
+            'ban to lift, and lower the request rate (set fuzz_threads to a small value) '
+            'before retrying.'
+        )
 
     @staticmethod
     def _wildcard_length(text: str) -> int | None:

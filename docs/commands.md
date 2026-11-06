@@ -322,6 +322,10 @@ Sharingan > fuzz myserver http://example.com
   wildcard), printing `Catch-all detected ... retrying`. You only need to set
   `fuzz_exclude_length` by hand if the catch-all length varies per path (then
   `fuzz` reports that and suggests a range, e.g. `set fuzz_exclude_length 780-810`).
+- If `gobuster` can't connect (timeout/refused), `fuzz` says so specifically —
+  the target may be down or (common right after fuzzing) may have blocked your
+  source IP (firewall/fail2ban). Check connectivity, wait for any ban to lift,
+  and lower `fuzz_threads` before retrying.
 - Findings already known from a previous `fuzz` run against the same host
   and base URL are kept, not re-inserted; the result table marks each row
   `new` or `known`.
