@@ -315,9 +315,12 @@ Sharingan > fuzz myserver http://example.com
 - `gobuster`'s live progress counter (`Progress: X / Y`) is shown while it runs,
   so you can tell it is working and not stuck.
 - If the target answers every path the same way (a wildcard/catch-all page,
-  common on single-page apps), `gobuster` refuses to run and `fuzz` reports the
-  error instead of silently showing zero findings. Set `fuzz_exclude_length` to
-  the size shown in the error (e.g. `set fuzz_exclude_length 459`) and run it again.
+  common on single-page apps), `gobuster` refuses to run. `fuzz` **auto-calibrates**:
+  it reads the response length `gobuster` reported and automatically re-runs once
+  with `--exclude-length <that length>` (the way `feroxbuster` self-filters a
+  wildcard), printing `Catch-all detected ... retrying`. You only need to set
+  `fuzz_exclude_length` by hand if the catch-all length varies per path (then
+  `fuzz` reports that and suggests a range, e.g. `set fuzz_exclude_length 780-810`).
 - Findings already known from a previous `fuzz` run against the same host
   and base URL are kept, not re-inserted; the result table marks each row
   `new` or `known`.

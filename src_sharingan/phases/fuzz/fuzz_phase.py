@@ -56,6 +56,7 @@ class FuzzPhase(PhaseModule):
         matches = self.gobuster.enumerate(
             url, wordlist, extensions=extensions, threads=threads,
             status_codes=status_codes, exclude_length=exclude_length,
+            on_notice=on_progress,
         )
 
         existing_paths = {

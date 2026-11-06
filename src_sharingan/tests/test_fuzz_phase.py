@@ -99,4 +99,7 @@ def test_fuzz_phase_passes_options_through_to_gobuster():
     assert received == {
         'extensions': 'php,bak', 'threads': 50,
         'status_codes': '200,301', 'exclude_length': None,
+        # the phase forwards its progress callback so gobuster can announce an
+        # auto-calibration retry; it's None when no on_progress was given.
+        'on_notice': None,
     }
