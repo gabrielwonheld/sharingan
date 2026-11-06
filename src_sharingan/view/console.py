@@ -72,6 +72,13 @@ class InteractiveConsole:
     workspace_id = DEFAULT_WORKSPACE_ID
     workspace_name = DEFAULT_WORKSPACE_NAME
 
+    # The "current host" (msfconsole-style): once set with `use`, commands that
+    # take a target (scan/recon/whois/fuzz/crawl) can run with no argument and
+    # reuse it, instead of retyping the name and address every time. Session-only,
+    # cleared when the workspace changes. Class-level defaults for the same reason.
+    current_host_name = None
+    current_host_addr = None
+
     def __init__(self):
         self.console = RichConsole()
         self.session_db = get_session()
@@ -82,6 +89,7 @@ class InteractiveConsole:
             'exit': self.command_exit,
             'quit': self.command_exit,
             'help': self.command_help,
+            'use': self.command_use,
             'whois': self.command_whois,
             'set': self.command_set,
             'unset': self.command_unset,
@@ -109,7 +117,7 @@ class InteractiveConsole:
         init_db()
 
         self.completer = WordCompleter([
-            'whois', 'scan', 'scans', 'recon', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
+            'use', 'whois', 'scan', 'scans', 'recon', 'help', 'exit', 'quit', 'clear', 'set', 'unset', 'scope', 'options',
             'hosts', 'services', 'vulns', 'subdomains', 'fuzz', 'crawl',
             'findings', 'pages', 'emails', 'phases', 'fases', 'info', 'workspace', 'export',
         ], ignore_case=True)
@@ -117,6 +125,7 @@ class InteractiveConsole:
         self.style = Style.from_dict({
             'prompt': 'bold #ff2b2b',
             'workspace': 'bold #5fafff',
+            'host': 'bold #5fff87',
         })
 
         self.prompt_session = PromptSession(
@@ -152,14 +161,18 @@ class InteractiveConsole:
                     break
 
     def _prompt_message(self):
-        """`Sharingan [workspace] > ` — the workspace name sits where a shell
-        shows the current directory, so it's always clear which project the next
-        command will touch."""
-        return [
+        """`Sharingan [workspace] (host) > ` — the workspace sits where a shell
+        shows the current directory, and the current host (set with `use`), when
+        there is one, follows it, so it's always clear what the next command will
+        touch."""
+        segments = [
             ('class:prompt', 'Sharingan '),
             ('class:workspace', f'[{self.workspace_name}]'),
-            ('class:prompt', ' > '),
         ]
+        if self.current_host_addr:
+            segments.append(('class:host', f' ({self.current_host_addr})'))
+        segments.append(('class:prompt', ' > '))
+        return segments
 
     def process_command(self, text: str):
         parts = text.strip().split()
@@ -176,12 +189,71 @@ class InteractiveConsole:
     def _cmd_unknown(self, args):
         self.console.print("[red]Unknown command.[/red]")
 
-    def command_whois(self, args):
+    def command_use(self, args):
+        """`use <name|addr>`: set the current host so the target-taking commands
+        (scan/recon/whois/fuzz/crawl) can run without repeating it. No argument
+        prints the current host."""
         if not args:
-            self.console.print("[red]Usage: whois <domain>[/red]")
+            if self.current_host_addr:
+                self.console.print(
+                    f"[green]Current host: {self.current_host_name} ({self.current_host_addr})[/green]"
+                )
+            else:
+                self.console.print(
+                    "[yellow]No current host set. Use: use <name|addr>[/yellow]"
+                )
             return
 
-        domain = args[0]
+        host = self._find_host_or_warn(args[0])
+        if host is None:
+            return
+        self.current_host_name = host.nome
+        self.current_host_addr = host.addr
+        self.console.print(
+            f"[green]Current host => {host.nome} ({host.addr})[/green]"
+        )
+
+    def _current_host_pair(self):
+        """(name, address) of the current host, or (None, None) if none is set."""
+        if self.current_host_addr:
+            return self.current_host_name, self.current_host_addr
+        return None, None
+
+    def _no_current_host(self, usage: str):
+        """Shared message when a target-taking command is run with no argument
+        and no current host is set."""
+        self.console.print(f"[red]Usage: {usage}[/red]")
+        self.console.print(
+            "[yellow]No current host. Set one with 'use <name|addr>', or pass the "
+            "target explicitly.[/yellow]"
+        )
+
+    def _resolve_name_url(self, args, usage: str):
+        """Resolves (name, url) for the web commands (fuzz/crawl). With two args
+        they're explicit; with none, the current host is used and the URL is
+        assumed to be `http://<addr>` (the host only stores an address, not a
+        scheme) — the caller tells the user which URL it picked. Returns
+        (None, None) after printing an error when neither form applies."""
+        if len(args) >= 2:
+            return args[0], args[1]
+        if not args:
+            name, addr = self._current_host_pair()
+            if addr:
+                return name, f"http://{addr}"
+            self._no_current_host(usage)
+            return None, None
+        self.console.print(f"[red]Usage: {usage}[/red]")
+        return None, None
+
+    def command_whois(self, args):
+        if args:
+            domain = args[0]
+        else:
+            _, domain = self._current_host_pair()
+            if not domain:
+                self._no_current_host("whois <domain>")
+                return
+
         if not self._target_allowed_by_scope(domain):
             return
         self.handle_whois(domain)
@@ -288,11 +360,18 @@ class InteractiveConsole:
             self.command_scan_diff(args[1:])
             return
 
-        if len(args) < 2:
-            self.console.print("[red]Usage: scan <name> <ip/host>  |  scan diff <name|addr>[/red]")
+        usage = "scan <name> <ip/host>  |  scan diff <name|addr>  |  scan (uses 'use' host)"
+        if len(args) >= 2:
+            name, target = args[0], args[1]
+        elif not args:
+            name, target = self._current_host_pair()
+            if not target:
+                self._no_current_host(usage)
+                return
+        else:
+            self.console.print(f"[red]Usage: {usage}[/red]")
             return
 
-        name, target = args[0], args[1]
         self.handle_scan(name, target)
 
     def command_scans(self, args):
@@ -378,11 +457,17 @@ class InteractiveConsole:
 
     def command_recon(self, args):
         """`recon <name> <domain>`: passive subdomain discovery (subfinder)."""
-        if len(args) < 2:
+        if len(args) >= 2:
+            name, domain = args[0], args[1]
+        elif not args:
+            name, domain = self._current_host_pair()
+            if not domain:
+                self._no_current_host("recon <name> <domain>")
+                return
+        else:
             self.console.print("[red]Usage: recon <name> <domain>[/red]")
             return
 
-        name, domain = args[0], args[1]
         if not self._target_allowed_by_scope(domain):
             return
 
@@ -418,11 +503,13 @@ class InteractiveConsole:
         """`fuzz <name> <url>`: directory/file enumeration (gobuster), opt-in only —
         never run automatically by `scan`, since it sends a real, sizeable volume
         of requests to the target."""
-        if len(args) < 2:
-            self.console.print("[red]Usage: fuzz <name> <url>  (needs 'fuzz_wordlist' set — see 'options')[/red]")
+        name, url = self._resolve_name_url(
+            args, "fuzz <name> <url>  (needs 'fuzz_wordlist' set — see 'options')"
+        )
+        if name is None:
             return
-
-        name, url = args[0], args[1]
+        if not args:
+            self.console.print(f"[*] Using current host — fuzzing {url}")
         hostname = urlparse(url).hostname
         if not hostname:
             self.console.print("[red]URL must include a scheme and host, e.g. http://example.com/base[/red]")
@@ -495,11 +582,11 @@ class InteractiveConsole:
         """`crawl <name> <url>`: bounded crawl (pages + emails). Sends real HTTP
         requests, so scope is checked on the start host first and again on every
         host the crawl would follow a link to."""
-        if len(args) < 2:
-            self.console.print("[red]Usage: crawl <name> <url>[/red]")
+        name, url = self._resolve_name_url(args, "crawl <name> <url>")
+        if name is None:
             return
-
-        name, url = args[0], args[1]
+        if not args:
+            self.console.print(f"[*] Using current host — crawling {url}")
         hostname = urlparse(url).hostname
         if not hostname:
             self.console.print("[red]URL must include a scheme and host, e.g. http://example.com/[/red]")
@@ -639,6 +726,10 @@ class InteractiveConsole:
     def _switch_workspace(self, workspace: Workspace) -> None:
         self.workspace_id = workspace.id
         self.workspace_name = workspace.name
+        # The current host belongs to the workspace we're leaving, so it would be
+        # a stale (wrong-project) target here — clear it.
+        self.current_host_name = None
+        self.current_host_addr = None
 
     def command_workspace(self, args):
         """`workspace` lists; `workspace <name>` switches; `workspace add <name>`

@@ -26,6 +26,7 @@ HELP_SECTIONS: tuple[HelpSection, ...] = (
     HelpSection('Overview', (
         ('phases [name|addr]', "List the phases; with a host, show which already ran on it (alias: fases)."),
         ('info <name|addr>', "Everything collected about one host, across all phases."),
+        ('use [name|addr]', "Set the current host so scan/recon/whois/fuzz/crawl can run without repeating the target; no argument shows it."),
         ('workspace [<name> | add <name> | delete <name>]', "List, switch to, create or delete workspaces (projects). The prompt shows the current one."),
         ('export [path]', "Write the current workspace as a Markdown report (default: a timestamped file in the current directory)."),
         ('hosts [-d <name|addr|all>]', "List hosts, or delete one host (cascades) / all hosts."),

@@ -100,6 +100,28 @@ findings) and points to the dedicated command (`subdomains`, `vulns`, `emails`,
 Sharingan > info myserver
 ```
 
+## `use [name|addr]`
+
+Sets the **current host** so the target-taking commands can run without
+repeating the target every time. `use 16bits` (by the name a host was scanned
+under, or by its address) points the session at that host; afterwards `scan`,
+`recon`, `whois`, `fuzz` and `crawl` with **no argument** reuse its name and
+address. The current host shows up in the prompt, after the workspace:
+`Sharingan [16bits] (16bits.net.br) >`. Running `use` with no argument prints
+the current host; switching [workspace](#workspace-name--add-name--delete-name)
+clears it (it belonged to the other project). The explicit two-argument forms
+(`scan <name> <host>`, etc.) keep working for first-time or ad-hoc targets.
+
+For `fuzz` and `crawl`, which need a full URL, the current host supplies
+`http://<addr>` (a host only stores an address, not a scheme); pass the URL
+explicitly to use HTTPS or a path.
+
+```text
+Sharingan [16bits] > use 16bits
+Current host => 16bits (16bits.net.br)
+Sharingan [16bits] (16bits.net.br) > scan
+```
+
 ## `whois <domain>`
 
 Runs a WHOIS lookup against `domain` and prints registrar, creation date and

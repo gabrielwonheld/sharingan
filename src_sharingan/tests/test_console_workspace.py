@@ -425,3 +425,19 @@ def test_export_reports_a_write_failure(tmp_path, mocker):
     console.command_export([str(tmp_path / 'report.md')])
 
     assert 'Could not write' in text(console) and 'denied' in text(console)
+
+
+def test_switching_workspace_clears_the_current_host():
+    """The current host (set with `use`) belongs to the workspace it was set in —
+    it would be the wrong project's target after a switch, so it's cleared."""
+    console, session = make_workspace_console()
+    session.add(Host(nome='16bits', addr='16bits.net.br', workspace_id=1))
+    session.add(Workspace(id=2, name='cliente-a'))
+    session.commit()
+    console.command_use(['16bits'])
+    assert console.current_host_addr == '16bits.net.br'
+
+    console.command_workspace(['cliente-a'])
+
+    assert console.current_host_addr is None
+    assert console.current_host_name is None

@@ -2066,3 +2066,146 @@ def test_info_caps_long_sections_and_points_to_the_full_listing():
 
     assert len(_table_cell_values(console.console.print, 'Subdomains', 'Name')) == 25
     assert any('+5 more' in t and "'subdomains" in t for t in _printed(console))
+
+
+# ---------------------------------------------------------------------------
+# `use` — current host, so target-taking commands can run without repeating it
+# ---------------------------------------------------------------------------
+
+def test_use_sets_the_current_host_from_an_alias():
+    session = make_session()
+    console = make_console(session)
+    session.add(Host(nome='16bits', addr='16bits.net.br'))
+    session.commit()
+
+    console.command_use(['16bits'])
+
+    assert (console.current_host_name, console.current_host_addr) == ('16bits', '16bits.net.br')
+    assert any('Current host' in t for t in _printed(console))
+
+
+def test_use_accepts_the_address_too():
+    session = make_session()
+    console = make_console(session)
+    session.add(Host(nome='16bits', addr='16bits.net.br'))
+    session.commit()
+
+    console.command_use(['16bits.net.br'])
+
+    assert console.current_host_addr == '16bits.net.br'
+
+
+def test_use_unknown_host_leaves_current_unset():
+    console = make_console(make_session())
+
+    console.command_use(['ghost'])
+
+    assert console.current_host_addr is None
+    assert any('not found' in t for t in _printed(console))
+
+
+def test_use_with_no_argument_reports_the_current_host():
+    console = make_console(make_session())
+    console.current_host_name, console.current_host_addr = '16bits', '16bits.net.br'
+
+    console.command_use([])
+
+    assert any('16bits.net.br' in t for t in _printed(console))
+
+
+def test_scan_with_no_args_uses_the_current_host(mocker):
+    session = make_session()
+    console = make_console(session)
+    host = Host(nome='16bits', addr='16bits.net.br')
+    session.add(host)
+    session.commit()
+    console.current_host_name, console.current_host_addr = '16bits', '16bits.net.br'
+    mock_phase_cls = mocker.patch('view.console.ScanPhase')
+    mock_phase_cls.return_value.run.return_value = host
+
+    console.command_scan([])
+
+    mock_phase_cls.return_value.run.assert_called_once_with(
+        name='16bits', target='16bits.net.br', on_progress=console._report_progress
+    )
+
+
+def test_scan_with_no_args_and_no_current_host_warns(mocker):
+    console = make_console(make_session())
+    mock_phase_cls = mocker.patch('view.console.ScanPhase')
+
+    console.command_scan([])
+
+    mock_phase_cls.assert_not_called()
+    assert any('No current host' in t for t in _printed(console))
+
+
+def test_recon_with_no_args_uses_the_current_host(mocker):
+    console = _scope_console()
+    host = Host(nome='16bits', addr='16bits.net.br')
+    console.session_db.add(host)
+    console.session_db.commit()
+    console.current_host_name, console.current_host_addr = '16bits', '16bits.net.br'
+    mock_phase_cls = mocker.patch('view.console.ReconPhase')
+    fake = mock_phase_cls.return_value
+    fake.subfinder = _AlwaysAvailable
+    fake.run.return_value = host
+    fake.last_new_subdomains = []
+    fake.last_all_subdomains = []
+
+    console.command_recon([])
+
+    kwargs = fake.run.call_args.kwargs
+    assert (kwargs['name'], kwargs['domain']) == ('16bits', '16bits.net.br')
+
+
+def test_whois_with_no_args_uses_the_current_host(mocker):
+    console = make_console(make_session())
+    console.current_host_name, console.current_host_addr = '16bits', '16bits.net.br'
+    handle = mocker.patch.object(console, 'handle_whois')
+
+    console.command_whois([])
+
+    handle.assert_called_once_with('16bits.net.br')
+
+
+def test_fuzz_with_no_args_uses_the_current_host_over_http(mocker):
+    console = _fuzz_console()
+    host = Host(nome='16bits', addr='16bits.net.br')
+    console.session_db.add(host)
+    console.session_db.commit()
+    console.current_host_name, console.current_host_addr = '16bits', '16bits.net.br'
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+    fake = mock_phase_cls.return_value
+    fake.gobuster = _AlwaysAvailable
+    fake.run.return_value = host
+    fake.last_new_paths = []
+    fake.last_all_matches = []
+
+    console.command_fuzz([])
+
+    kwargs = fake.run.call_args.kwargs
+    assert (kwargs['name'], kwargs['url']) == ('16bits', 'http://16bits.net.br')
+
+
+def test_crawl_with_no_args_uses_the_current_host_over_http(mocker):
+    session = make_session()
+    console = make_console(session)
+    host = Host(nome='16bits', addr='16bits.net.br')
+    session.add(host)
+    session.commit()
+    console.current_host_name, console.current_host_addr = '16bits', '16bits.net.br'
+    mock_phase_cls = _fake_spider_phase(mocker, host)
+
+    console.command_crawl([])
+
+    kwargs = mock_phase_cls.return_value.run.call_args.kwargs
+    assert (kwargs['name'], kwargs['url']) == ('16bits', 'http://16bits.net.br')
+
+
+def test_prompt_shows_the_current_host():
+    console = make_console(make_session())
+    assert all('16bits.net.br' not in str(seg) for seg in console._prompt_message())
+
+    console.current_host_name, console.current_host_addr = '16bits', '16bits.net.br'
+    assert any('16bits.net.br' in str(seg) for seg in console._prompt_message())
