@@ -113,8 +113,14 @@ class ScanPhase(PhaseModule):
 
     def _run_steps(self, host: Host, run: ScanRun, target: str, notify) -> None:
         notify('Scanning open ports (rustscan)...')
+        # Forward each `Open host:port` line rustscan prints as it finds a port, so the
+        # console shows ports appearing live instead of a single message that looks frozen
+        # during a long full-range scan.
         open_ports = self.rustscan.scan_ports(
-            target, timeout_ms=self.rustscan_timeout, batch_size=self.rustscan_batch
+            target,
+            timeout_ms=self.rustscan_timeout,
+            batch_size=self.rustscan_batch,
+            on_line=notify,
         )
         if not open_ports:
             host.ports_active = '[]'

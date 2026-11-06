@@ -504,6 +504,29 @@ def test_scan_phase_reports_progress_for_each_step():
     ]
 
 
+def test_scan_phase_forwards_rustscan_open_port_lines_to_progress():
+    """rustscan streams `Open host:port` lines as it finds each port; the phase forwards
+    them through `on_progress` so the console can show ports appearing live during a scan."""
+
+    class StreamingRustscan:
+        @classmethod
+        def scan_ports(cls, target, **kwargs):
+            on_line = kwargs.get('on_line')
+            if on_line:
+                on_line('Open 192.0.2.92:22')
+                on_line('Open 192.0.2.92:80')
+            return [22, 80]
+
+    session = make_session()
+    phase = make_phase(session, rustscan=StreamingRustscan)
+    progress = []
+
+    phase.run(name='alvo', target='192.0.2.92', on_progress=progress.append)
+
+    assert 'Open 192.0.2.92:22' in progress
+    assert 'Open 192.0.2.92:80' in progress
+
+
 def test_scan_phase_progress_mentions_vulners_when_embedded_in_nmap():
     session = make_session()
     phase = make_phase(session, vulners=FakeVulnersWithFindings)
@@ -602,4 +625,7 @@ def test_scan_phase_passes_rustscan_options_to_the_tool():
 
     phase.run(name='alvo', target='192.0.2.150')
 
-    assert received == {'batch_size': 200, 'timeout_ms': 9000}
+    assert received['batch_size'] == 200
+    assert received['timeout_ms'] == 9000
+    # rustscan's incremental `Open host:port` lines are streamed out through this callback.
+    assert callable(received['on_line'])
