@@ -437,7 +437,11 @@ def test_switching_workspace_clears_the_current_host():
     console.command_use(['16bits'])
     assert console.current_host_addr == '16bits.net.br'
 
+    console.command_use(['http://16bits.net.br:5000'])
+    assert console.current_web_base == 'http://16bits.net.br:5000'
+
     console.command_workspace(['cliente-a'])
 
     assert console.current_host_addr is None
     assert console.current_host_name is None
+    assert console.current_web_base is None

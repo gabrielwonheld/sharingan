@@ -78,6 +78,11 @@ class InteractiveConsole:
     # cleared when the workspace changes. Class-level defaults for the same reason.
     current_host_name = None
     current_host_addr = None
+    # Optional web base (scheme://host:port) for the current host, set by
+    # `use <url>`. The web commands (fuzz/crawl) run against it when present, so a
+    # service on a non-standard port (e.g. a Flask app on :5000) can be targeted
+    # by a bare `fuzz`/`crawl` without retyping the URL. None = infer from the scan.
+    current_web_base = None
 
     def __init__(self):
         self.console = RichConsole()
@@ -190,25 +195,46 @@ class InteractiveConsole:
         self.console.print("[red]Unknown command.[/red]")
 
     def command_use(self, args):
-        """`use <name|addr>`: set the current host so the target-taking commands
-        (scan/recon/whois/fuzz/crawl) can run without repeating it. No argument
-        prints the current host."""
+        """`use <name|addr>` sets the current host; `use <url>` (e.g.
+        `use http://host:5000`) also remembers that URL as the web base, so a bare
+        `fuzz`/`crawl` hits that exact scheme/port. No argument prints the current
+        host (and web base, if any)."""
         if not args:
             if self.current_host_addr:
+                extra = f"; web target => {self.current_web_base}" if self.current_web_base else ""
                 self.console.print(
-                    f"[green]Current host: {self.current_host_name} ({self.current_host_addr})[/green]"
+                    f"[green]Current host: {self.current_host_name} "
+                    f"({self.current_host_addr}){extra}[/green]"
                 )
             else:
                 self.console.print(
-                    "[yellow]No current host set. Use: use <name|addr>[/yellow]"
+                    "[yellow]No current host set. Use: use <name|addr> (or use <url>)[/yellow]"
                 )
             return
 
-        host = self._find_host_or_warn(args[0])
+        ident = args[0]
+        parsed = urlparse(ident)
+        if parsed.scheme and parsed.hostname:
+            # URL form: resolve the host by its hostname and remember the full URL
+            # as the web base for fuzz/crawl.
+            host = self._find_host_or_warn(parsed.hostname)
+            if host is None:
+                return
+            self.current_host_name = host.nome
+            self.current_host_addr = host.addr
+            self.current_web_base = ident.rstrip('/')
+            self.console.print(
+                f"[green]Current host => {host.nome} ({host.addr}); "
+                f"web target => {self.current_web_base}[/green]"
+            )
+            return
+
+        host = self._find_host_or_warn(ident)
         if host is None:
             return
         self.current_host_name = host.nome
         self.current_host_addr = host.addr
+        self.current_web_base = None  # a bare host drops any previous web base
         self.console.print(
             f"[green]Current host => {host.nome} ({host.addr})[/green]"
         )
@@ -239,27 +265,38 @@ class InteractiveConsole:
             return args[0], args[1]
         if not args:
             name, addr = self._current_host_pair()
-            if addr:
-                return name, f"{self._scheme_for_host(addr)}://{addr}"
-            self._no_current_host(usage)
-            return None, None
+            if not addr:
+                self._no_current_host(usage)
+                return None, None
+            # An explicit web base (from `use <url>`) wins — it carries the right
+            # scheme AND port, so a service on a non-standard port is reachable.
+            if self.current_web_base:
+                return name, self.current_web_base
+            ports = self._open_ports_for(addr)
+            scheme = 'https' if 443 in ports else 'http'
+            # If neither standard web port is open, a bare fuzz/crawl at :80/:443
+            # would just get "connection refused" — point the user at the real ports.
+            if ports and 80 not in ports and 443 not in ports:
+                listed = ', '.join(str(p) for p in sorted(ports))
+                self.console.print(
+                    f"[yellow]No open 80/443 on {addr} (open ports: {listed}). If the "
+                    f"web app is on another port, run 'use {scheme}://{addr}:<port>' "
+                    "first, or pass the URL explicitly.[/yellow]"
+                )
+            return name, f"{scheme}://{addr}"
         self.console.print(f"[red]Usage: {usage}[/red]")
         return None, None
 
-    def _scheme_for_host(self, addr: str) -> str:
-        """`https` if the host's latest scan found port 443 open, else `http`.
-        Lets a bare `fuzz`/`crawl` on the current host hit the right scheme (an
-        HTTPS-only site would 301 every http path — the catch-all the user hit)."""
+    def _open_ports_for(self, addr: str) -> set:
+        """Open ports from the host's latest scan (empty if the host/scan is absent)."""
         host = self._hosts_query().filter_by(addr=addr).first()
-        if host:
-            ports = {
-                s.port for s in self.session_db.query(Service).filter(
-                    Service.host_id == host.id, current_services_filter()
-                )
-            }
-            if 443 in ports:
-                return 'https'
-        return 'http'
+        if not host:
+            return set()
+        return {
+            s.port for s in self.session_db.query(Service).filter(
+                Service.host_id == host.id, current_services_filter()
+            )
+        }
 
     def command_whois(self, args):
         if args:
@@ -743,9 +780,10 @@ class InteractiveConsole:
         self.workspace_id = workspace.id
         self.workspace_name = workspace.name
         # The current host belongs to the workspace we're leaving, so it would be
-        # a stale (wrong-project) target here — clear it.
+        # a stale (wrong-project) target here — clear it (and its web base).
         self.current_host_name = None
         self.current_host_addr = None
+        self.current_web_base = None
 
     def command_workspace(self, args):
         """`workspace` lists; `workspace <name>` switches; `workspace add <name>`

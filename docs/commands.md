@@ -114,8 +114,19 @@ clears it (it belonged to the other project). The explicit two-argument forms
 
 For `fuzz` and `crawl`, which need a full URL, the current host supplies
 `<scheme>://<addr>` — the scheme is inferred from the host's latest scan
-(`https` if port 443 is open, otherwise `http`). Pass the URL explicitly to
-force a scheme or add a path.
+(`https` if port 443 is open, otherwise `http`). If the web app is on a
+**non-standard port** (say a Flask app on `:5000`), set a **web base** with
+`use <url>`: `use http://host:5000` points the current host at that exact
+scheme/port, and bare `fuzz`/`crawl` then hit it. A bare `use <name|addr>`
+clears the web base again. If neither 80 nor 443 is open on the host, a bare
+`fuzz`/`crawl` warns and lists the open ports so you can pick one.
+
+```text
+Sharingan [lab] (127.0.0.1) > use http://127.0.0.1:5000
+Current host => local (127.0.0.1); web target => http://127.0.0.1:5000
+Sharingan [lab] (127.0.0.1) > fuzz
+[*] Using current host — fuzzing http://127.0.0.1:5000
+```
 
 ```text
 Sharingan [16bits] > use 16bits

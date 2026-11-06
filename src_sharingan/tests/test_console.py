@@ -2254,3 +2254,97 @@ def test_fuzz_on_current_host_falls_back_to_http_without_443(mocker):
     console.command_fuzz([])
 
     assert fake.run.call_args.kwargs['url'] == 'http://plain.example.com'
+
+
+# --- use <url>: a web base for a non-standard port -------------------------
+
+def test_use_url_sets_the_web_base_for_the_current_host():
+    session = make_session()
+    console = make_console(session)
+    session.add(Host(nome='local', addr='127.0.0.1'))
+    session.commit()
+
+    console.command_use(['http://127.0.0.1:5000'])
+
+    assert (console.current_host_name, console.current_host_addr) == ('local', '127.0.0.1')
+    assert console.current_web_base == 'http://127.0.0.1:5000'
+
+
+def test_use_url_resolves_the_host_by_its_hostname_and_warns_if_unknown():
+    console = make_console(make_session())
+
+    console.command_use(['http://ghost:5000'])
+
+    assert console.current_host_addr is None
+    assert console.current_web_base is None
+    assert any('not found' in t for t in _printed(console))
+
+
+def test_use_bare_host_clears_a_previous_web_base():
+    session = make_session()
+    console = make_console(session)
+    session.add(Host(nome='local', addr='127.0.0.1'))
+    session.commit()
+    console.command_use(['http://127.0.0.1:5000'])
+    assert console.current_web_base is not None
+
+    console.command_use(['local'])
+
+    assert console.current_web_base is None
+
+
+def test_fuzz_uses_the_web_base_when_set(mocker):
+    console = _fuzz_console()
+    session = console.session_db
+    host = Host(nome='local', addr='127.0.0.1')
+    session.add(host)
+    session.commit()
+    console.current_host_name, console.current_host_addr = 'local', '127.0.0.1'
+    console.current_web_base = 'http://127.0.0.1:5000'
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+    fake = mock_phase_cls.return_value
+    fake.gobuster = _AlwaysAvailable
+    fake.run.return_value = host
+    fake.last_new_paths = []
+    fake.last_all_matches = []
+
+    console.command_fuzz([])
+
+    assert fake.run.call_args.kwargs['url'] == 'http://127.0.0.1:5000'
+
+
+def test_crawl_uses_the_web_base_when_set(mocker):
+    session = make_session()
+    console = make_console(session)
+    host = Host(nome='local', addr='127.0.0.1')
+    session.add(host)
+    session.commit()
+    console.current_host_name, console.current_host_addr = 'local', '127.0.0.1'
+    console.current_web_base = 'http://127.0.0.1:5000'
+    mock_phase_cls = _fake_spider_phase(mocker, host)
+
+    console.command_crawl([])
+
+    assert mock_phase_cls.return_value.run.call_args.kwargs['url'] == 'http://127.0.0.1:5000'
+
+
+def test_bare_fuzz_warns_when_no_standard_web_port_is_open(mocker):
+    console = _fuzz_console()
+    session = console.session_db
+    host = Host(nome='local', addr='127.0.0.1')
+    session.add(host)
+    session.commit()
+    # only a non-standard web port open — no 80/443
+    session.add(Service(host_id=host.id, port=5000, protocol='tcp', state='open', name='upnp'))
+    session.commit()
+    console.current_host_name, console.current_host_addr = 'local', '127.0.0.1'
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+    fake = mock_phase_cls.return_value
+    fake.gobuster = _AlwaysAvailable
+    fake.run.return_value = host
+    fake.last_new_paths = []
+    fake.last_all_matches = []
+
+    console.command_fuzz([])
+
+    assert any('No open 80/443' in t and '5000' in t for t in _printed(console))
