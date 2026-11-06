@@ -66,7 +66,7 @@ def test_rows_lists_every_option_with_value_default_and_description():
     assert all(desc for _, _, desc in rows.values())
     assert set(rows) == {
         'rustscan_batch', 'rustscan_timeout', 'user_agent',
-        'fuzz_wordlist', 'fuzz_extensions', 'fuzz_threads',
+        'fuzz_wordlist', 'fuzz_extensions', 'fuzz_threads', 'fuzz_exclude_length',
         'spider_max_depth', 'spider_max_pages', 'spider_delay',
     }
 
@@ -77,6 +77,17 @@ def test_fuzz_options_have_sane_defaults():
     assert ctx.get('fuzz_wordlist') == ''
     assert ctx.get('fuzz_extensions') == ''
     assert ctx.get('fuzz_threads') == 10
+    assert ctx.get('fuzz_exclude_length') == ''
+
+
+def test_fuzz_exclude_length_accepts_empty_and_a_value():
+    ctx = SessionContext()
+
+    assert ctx.get('fuzz_exclude_length') == ''
+    ctx.set('fuzz_exclude_length', '459')
+    assert ctx.get('fuzz_exclude_length') == '459'
+    ctx.unset('fuzz_exclude_length')
+    assert ctx.get('fuzz_exclude_length') == ''
 
 
 def test_fuzz_wordlist_accepts_empty_value_unlike_user_agent():

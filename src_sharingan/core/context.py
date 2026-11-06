@@ -70,6 +70,11 @@ OPTIONS: dict[str, OptionSpec] = {
         10, _positive_int,
         "Concurrent threads 'fuzz' passes to gobuster (-t).",
     ),
+    'fuzz_exclude_length': OptionSpec(
+        '', _optional_text,
+        "Content lengths 'fuzz' tells gobuster to ignore (--exclude-length), e.g. '459' or "
+        "'200-250', comma-separated. Use it when a target returns the same page for every path.",
+    ),
     'spider_max_depth': OptionSpec(
         3, _positive_int,
         "How many links deep 'crawl' follows from the start URL.",

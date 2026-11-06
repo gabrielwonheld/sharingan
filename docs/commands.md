@@ -289,7 +289,13 @@ Sharingan > fuzz myserver http://example.com
   [scope](#scope-addexcluderemove-value) before anything runs, and what
   `gobuster` is pointed at.
 - `gobuster` is required — same ask-and-install flow as `rustscan`/`nmap`/`subfinder`.
-- Honors `fuzz_extensions` and `fuzz_threads` ([session options](options.md)).
+- Honors `fuzz_extensions`, `fuzz_threads` and `fuzz_exclude_length` ([session options](options.md)).
+- `gobuster`'s live progress counter (`Progress: X / Y`) is shown while it runs,
+  so you can tell it is working and not stuck.
+- If the target answers every path the same way (a wildcard/catch-all page,
+  common on single-page apps), `gobuster` refuses to run and `fuzz` reports the
+  error instead of silently showing zero findings. Set `fuzz_exclude_length` to
+  the size shown in the error (e.g. `set fuzz_exclude_length 459`) and run it again.
 - Findings already known from a previous `fuzz` run against the same host
   and base URL are kept, not re-inserted; the result table marks each row
   `new` or `known`.

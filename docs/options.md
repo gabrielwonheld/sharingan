@@ -13,6 +13,7 @@ their defaults the next time you start Sharingan. The source of truth is the
 | `fuzz_wordlist` | *(empty)* | text, empty allowed | `fuzz` | Path to the wordlist `fuzz` passes to `gobuster -w`. **Required** before `fuzz` will run — there's no universal default wordlist Sharingan can assume is on disk. |
 | `fuzz_extensions` | *(empty)* | text, empty allowed | `fuzz` | Comma-separated extensions passed to `gobuster -x`, e.g. `php,txt,bak`. Optional — leave unset to not filter by extension. |
 | `fuzz_threads` | `10` | positive integer | `fuzz` | Concurrent threads passed to `gobuster -t`. |
+| `fuzz_exclude_length` | *(empty)* | text, empty allowed | `fuzz` | Content lengths passed to `gobuster --exclude-length`, e.g. `459` or `200-250`, comma-separated. Set it when the target returns the same page for every path (a wildcard/catch-all, common on SPAs) — otherwise `gobuster` refuses to run and `fuzz` reports the error. |
 | `spider_max_depth` | `3` | positive integer | `crawl` | How many links deep `crawl` follows from the start URL. |
 | `spider_max_pages` | `100` | positive integer | `crawl` | Most pages `crawl` fetches in one run. |
 | `spider_delay` | `0.5` | number >= 0 | `crawl` | Seconds `crawl` waits between requests (`0` = no pause). |

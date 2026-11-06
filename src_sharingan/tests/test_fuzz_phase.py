@@ -96,4 +96,7 @@ def test_fuzz_phase_passes_options_through_to_gobuster():
         extensions='php,bak', threads=50, status_codes='200,301',
     )
 
-    assert received == {'extensions': 'php,bak', 'threads': 50, 'status_codes': '200,301'}
+    assert received == {
+        'extensions': 'php,bak', 'threads': 50,
+        'status_codes': '200,301', 'exclude_length': None,
+    }

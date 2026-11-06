@@ -436,6 +436,12 @@ class InteractiveConsole:
                 "[red]No wordlist configured. Set one first: set fuzz_wordlist <path>[/red]"
             )
             return
+        if not Path(wordlist).is_file():
+            self.console.print(
+                f"[red]Wordlist not found: '{wordlist}'. Check the path (a value pasted "
+                "across two lines can pick up a stray space) — see 'options'.[/red]"
+            )
+            return
 
         fuzz_phase = FuzzPhase(self.session_db, workspace_id=self.workspace_id)
         if not self._ensure_tool_available('gobuster', fuzz_phase.gobuster, required=True):
@@ -447,6 +453,7 @@ class InteractiveConsole:
                 extensions=self.context.get('fuzz_extensions') or None,
                 threads=self.context.get('fuzz_threads'),
                 status_codes=None,
+                exclude_length=self.context.get('fuzz_exclude_length') or None,
                 on_progress=self._report_progress,
             )
         except RuntimeError as e:

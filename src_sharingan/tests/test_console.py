@@ -1,3 +1,5 @@
+import os
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -1419,9 +1421,18 @@ def test_command_subdomains_delete_all_declined(mocker):
     assert session.query(Subdomain).count() == 2
 
 
+# `command_fuzz` now checks the wordlist file actually exists before running
+# gobuster (a value pasted across two lines can pick up a stray space, which is
+# how a real user ended up pointing at a nonexistent path). So the fuzz console
+# needs to point at a real file on disk.
+_fd, _REAL_WORDLIST = tempfile.mkstemp(prefix='sharingan-wl-', suffix='.txt')
+os.write(_fd, b'admin\nlogin\n')
+os.close(_fd)
+
+
 def _fuzz_console():
     console = _scope_console()
-    console.context.set('fuzz_wordlist', '/tmp/words.txt')
+    console.context.set('fuzz_wordlist', _REAL_WORDLIST)
     return console
 
 
@@ -1449,6 +1460,23 @@ def test_command_fuzz_requires_a_configured_wordlist(mocker):
 
     mock_phase_cls.assert_not_called()
     assert any('fuzz_wordlist' in t for t in _printed(console))
+
+
+def test_command_fuzz_reports_a_missing_wordlist_clearly(mocker):
+    # Real repro: a `set fuzz_wordlist <path>` pasted across two terminal lines
+    # stored a path with a stray space in the middle, which doesn't exist on
+    # disk. The console must say so clearly (naming the exact path) and never
+    # reach gobuster — not surface gobuster's misleading wildcard hint.
+    console = _scope_console()
+    missing = '/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory- list.txt'
+    console.context.set('fuzz_wordlist', missing)
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+
+    console.command_fuzz(['alvo', 'http://example.com'])
+
+    mock_phase_cls.assert_not_called()
+    printed = ' '.join(_printed(console))
+    assert 'not found' in printed and missing in printed
 
 
 def test_command_fuzz_blocked_when_out_of_scope(mocker):
@@ -1498,9 +1526,9 @@ def test_command_fuzz_shows_findings_marking_the_new_ones(mocker):
     status = _table_cell_values(console.console.print, 'Findings', 'Status')
     assert sorted(zip(paths, status)) == [('/admin', 'known'), ('/secret', 'new')]
     mock_phase_cls.return_value.run.assert_called_once_with(
-        name='alvo', url='http://example.com', wordlist='/tmp/words.txt',
+        name='alvo', url='http://example.com', wordlist=_REAL_WORDLIST,
         extensions=None, threads=10, status_codes=None,
-        on_progress=console._report_progress,
+        exclude_length=None, on_progress=console._report_progress,
     )
 
 
@@ -1521,17 +1549,35 @@ def test_command_fuzz_passes_configured_extensions_and_threads(mocker):
     console.command_fuzz(['alvo', 'http://example.com'])
 
     mock_phase_cls.return_value.run.assert_called_once_with(
-        name='alvo', url='http://example.com', wordlist='/tmp/words.txt',
+        name='alvo', url='http://example.com', wordlist=_REAL_WORDLIST,
         extensions='php,bak', threads=50, status_codes=None,
-        on_progress=console._report_progress,
+        exclude_length=None, on_progress=console._report_progress,
     )
+
+
+def test_command_fuzz_passes_configured_exclude_length(mocker):
+    console = _fuzz_console()
+    console.context.set('fuzz_exclude_length', '459')
+    host = Host(nome='alvo', addr='example.com')
+    console.session_db.add(host)
+    console.session_db.commit()
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+    fake_phase = mock_phase_cls.return_value
+    fake_phase.gobuster = _AlwaysAvailable
+    fake_phase.run.return_value = host
+    fake_phase.last_new_paths = []
+    fake_phase.last_all_matches = []
+
+    console.command_fuzz(['alvo', 'http://example.com'])
+
+    assert mock_phase_cls.return_value.run.call_args.kwargs['exclude_length'] == '459'
 
 
 def test_command_fuzz_rolls_back_the_session_when_it_fails(mocker):
     session = MagicMock()
     console = make_console(session)
     console.context = SessionContext()
-    console.context.set('fuzz_wordlist', '/tmp/words.txt')
+    console.context.set('fuzz_wordlist', _REAL_WORDLIST)
     mock_phase_cls = mocker.patch('view.console.FuzzPhase')
     mock_phase_cls.return_value.gobuster = _AlwaysAvailable
     mock_phase_cls.return_value.run.side_effect = ValueError('boom')

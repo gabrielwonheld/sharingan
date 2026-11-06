@@ -11,3 +11,9 @@ gpt*
 nmap.xml
 msfinstall
 /site/
+
+# Local recon artifacts — real target data, never commit
+/src_sharingan/16bits.md
+sharingan-*-*.md
+# Downloaded wordlists
+DirBuster-*.txt

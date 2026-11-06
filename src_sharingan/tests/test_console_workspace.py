@@ -7,7 +7,9 @@ from model.scope_model import ScopeRule
 from model.service_model import ScanRun, Service, Vulnerability
 from model.subdomain_model import Subdomain
 from model.workspace_model import Workspace
-from test_console import _printed, _table_cell_values, make_console, make_session
+from test_console import (
+    _REAL_WORDLIST, _printed, _table_cell_values, make_console, make_session,
+)
 
 
 def make_workspace_console():
@@ -303,7 +305,7 @@ def test_scope_enforcement_uses_the_current_workspaces_rules():
 def test_phases_are_built_for_the_current_workspace(command, args, phase, mocker):
     console, session = make_workspace_console()
     console.command_workspace(['add', 'cliente-a'])
-    console.command_set(['fuzz_wordlist', '/tmp/w.txt'])
+    console.command_set(['fuzz_wordlist', _REAL_WORDLIST])
     phase_cls = mocker.patch(f'view.console.{phase}')
     phase_cls.return_value.run.side_effect = RuntimeError('stop here')
     for attr in ('subfinder', 'gobuster'):

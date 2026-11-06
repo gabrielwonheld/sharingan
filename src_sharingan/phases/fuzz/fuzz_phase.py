@@ -42,6 +42,7 @@ class FuzzPhase(PhaseModule):
         extensions: str | None = None,
         threads: int = 10,
         status_codes: str | None = None,
+        exclude_length: str | None = None,
         on_progress=None,
     ) -> Host:
         """`on_progress`, if given, is called with a string naming the actual
@@ -53,7 +54,8 @@ class FuzzPhase(PhaseModule):
         host = get_or_create_host(self.session, name, hostname, self.workspace_id)
 
         matches = self.gobuster.enumerate(
-            url, wordlist, extensions=extensions, threads=threads, status_codes=status_codes,
+            url, wordlist, extensions=extensions, threads=threads,
+            status_codes=status_codes, exclude_length=exclude_length,
         )
 
         existing_paths = {
