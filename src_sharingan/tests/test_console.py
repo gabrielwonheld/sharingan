@@ -2209,3 +2209,48 @@ def test_prompt_shows_the_current_host():
 
     console.current_host_name, console.current_host_addr = '16bits', '16bits.net.br'
     assert any('16bits.net.br' in str(seg) for seg in console._prompt_message())
+
+
+def test_fuzz_on_current_host_uses_https_when_443_is_open(mocker):
+    """A bare `fuzz` on the current host should hit https when the scan found 443
+    open — otherwise an HTTPS-only site 301-redirects every http path (the exact
+    catch-all the user ran into)."""
+    console = _fuzz_console()
+    session = console.session_db
+    host = Host(nome='16bits', addr='16bits.net.br')
+    session.add(host)
+    session.commit()
+    session.add(Service(host_id=host.id, port=443, protocol='tcp', state='open', product='nginx'))
+    session.commit()
+    console.current_host_name, console.current_host_addr = '16bits', '16bits.net.br'
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+    fake = mock_phase_cls.return_value
+    fake.gobuster = _AlwaysAvailable
+    fake.run.return_value = host
+    fake.last_new_paths = []
+    fake.last_all_matches = []
+
+    console.command_fuzz([])
+
+    assert fake.run.call_args.kwargs['url'] == 'https://16bits.net.br'
+
+
+def test_fuzz_on_current_host_falls_back_to_http_without_443(mocker):
+    console = _fuzz_console()
+    session = console.session_db
+    host = Host(nome='site', addr='plain.example.com')
+    session.add(host)
+    session.commit()
+    session.add(Service(host_id=host.id, port=80, protocol='tcp', state='open', product='httpd'))
+    session.commit()
+    console.current_host_name, console.current_host_addr = 'site', 'plain.example.com'
+    mock_phase_cls = mocker.patch('view.console.FuzzPhase')
+    fake = mock_phase_cls.return_value
+    fake.gobuster = _AlwaysAvailable
+    fake.run.return_value = host
+    fake.last_new_paths = []
+    fake.last_all_matches = []
+
+    console.command_fuzz([])
+
+    assert fake.run.call_args.kwargs['url'] == 'http://plain.example.com'

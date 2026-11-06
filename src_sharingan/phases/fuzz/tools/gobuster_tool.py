@@ -1,8 +1,6 @@
 import re
 import shutil
 import subprocess
-import sys
-import threading
 from dataclasses import dataclass
 
 
@@ -59,15 +57,18 @@ class GobusterTool:
     for `scan`'s target; it is never invoked automatically as part of
     `scan` or `recon`.
 
-    On the stdout/stderr split: we capture **stdout** (the result lines, which
-    we parse) and we also capture **stderr** while still streaming it to the
-    terminal live (see `_run_streaming`). gobuster only prints its live
-    `Progress: X / Y (pct%)` counter when stderr is a real TTY (it suppresses it
-    entirely when piped) and only when `-q` is *not* passed, so dropping `-q` and
-    forwarding stderr byte-for-byte is what gives the user gobuster's native
-    progress — the signal that it's running and not stuck. Capturing stderr as
-    well lets us read gobuster's wildcard/catch-all abort message and
-    auto-calibrate past it (`--exclude-length`), the way feroxbuster does.
+    On the stdout/stderr split: gobuster only prints its live
+    `Progress: X / Y (pct%)` counter when stderr is a **real TTY** — it suppresses
+    it entirely when stderr is a pipe — and only when `-q` is *not* passed. So the
+    normal run leaves **stderr inherited** (the child writes straight to the
+    terminal fd, below prompt_toolkit, exactly as before) to keep that live
+    progress, and only captures **stdout** (the result lines we parse). Piping
+    stderr would silently kill the counter (that was a real regression). To learn
+    *why* a run failed (the wildcard/catch-all abort names the length to exclude),
+    we re-run once with stderr captured — the abort happens immediately at
+    startup, before any enumeration, so there's no progress to lose on that
+    throwaway run. That's what lets us auto-calibrate past a wildcard
+    (`--exclude-length`), the way feroxbuster does, without sacrificing progress.
     """
 
     binary = 'gobuster'
@@ -98,43 +99,21 @@ class GobusterTool:
         return command
 
     @staticmethod
-    def _run_streaming(command, timeout):
-        """Runs gobuster, streaming stderr to the terminal live (byte for byte,
-        so the `\\r`-updated progress counter keeps working) while also capturing
-        it, and capturing stdout for parsing. Returns (returncode, stdout, stderr).
+    def _run(command, timeout, capture_stderr):
+        """Runs gobuster once. With `capture_stderr=False` (the normal run) stderr
+        is **inherited** — the child writes its live progress counter straight to
+        the terminal. With `capture_stderr=True` (a throwaway run after a failure)
+        stderr is piped so we can read the abort message. Returns
+        (returncode, stdout, stderr); stderr is '' when not captured.
 
         Injected via `enumerate(..., runner=...)` in tests, so the test suite
         never spawns a real process or touches the network.
         """
-        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        captured: list[bytes] = []
-
-        def pump_stderr():
-            # One byte at a time so a `\r`-terminated progress line reaches the
-            # terminal immediately instead of being buffered until a newline.
-            for chunk in iter(lambda: proc.stderr.read(1), b''):
-                try:
-                    sys.stderr.buffer.write(chunk)
-                    sys.stderr.buffer.flush()
-                except Exception:
-                    pass
-                captured.append(chunk)
-
-        pump = threading.Thread(target=pump_stderr, daemon=True)
-        pump.start()
-        killer = threading.Timer(timeout, proc.kill)
-        killer.start()
-        try:
-            out_bytes = proc.stdout.read()
-            proc.wait()
-        finally:
-            killer.cancel()
-        pump.join(timeout=1)
-        return (
-            proc.returncode,
-            out_bytes.decode(errors='replace'),
-            b''.join(captured).decode(errors='replace'),
+        stderr = subprocess.PIPE if capture_stderr else None
+        result = subprocess.run(
+            command, stdout=subprocess.PIPE, stderr=stderr, text=True, timeout=timeout
         )
+        return result.returncode, result.stdout, (result.stderr or '')
 
     @classmethod
     def enumerate(
@@ -156,29 +135,34 @@ class GobusterTool:
                 '(https://github.com/OJ/gobuster) before using the fuzz phase.'
             )
 
-        run = runner or cls._run_streaming
+        run = runner or cls._run
         command = cls._build_command(url, wordlist, extensions, threads, status_codes, exclude_length)
-        returncode, stdout, stderr = run(command, timeout)
 
-        if returncode != 0:
-            length = cls._wildcard_length(stderr) or cls._wildcard_length(stdout)
-            # Auto-calibrate past a wildcard/catch-all exactly once, and only when
-            # the user hasn't pinned an exclude-length themselves: re-run telling
-            # gobuster to ignore the length it just reported.
-            if auto_calibrate and not exclude_length and length is not None:
-                if on_notice:
-                    on_notice(
-                        f'Catch-all detected (gobuster saw length {length}); '
-                        f'retrying with --exclude-length {length}.'
-                    )
-                return cls.enumerate(
-                    url, wordlist, extensions=extensions, threads=threads,
-                    status_codes=status_codes, exclude_length=str(length),
-                    timeout=timeout, auto_calibrate=False, on_notice=on_notice, runner=run,
+        # Normal run: stderr inherited, so gobuster's progress counter shows live.
+        returncode, stdout, _ = run(command, timeout, False)
+        if returncode == 0:
+            return cls._parse_output(stdout)
+
+        # Failed — re-run capturing stderr (a wildcard abort is immediate, no
+        # progress to lose) to read *why*, so we can auto-calibrate or explain.
+        _, _, stderr = run(command, timeout, True)
+        length = cls._wildcard_length(stderr) or cls._wildcard_length(stdout)
+
+        # Auto-calibrate past a wildcard/catch-all exactly once, and only when the
+        # user hasn't pinned an exclude-length themselves: re-run telling gobuster
+        # to ignore the length it just reported.
+        if auto_calibrate and not exclude_length and length is not None:
+            if on_notice:
+                on_notice(
+                    f'Catch-all detected (gobuster saw length {length}); '
+                    f'retrying with --exclude-length {length}.'
                 )
-            raise GobusterError(cls._failure_message(exclude_length, length))
-
-        return cls._parse_output(stdout)
+            return cls.enumerate(
+                url, wordlist, extensions=extensions, threads=threads,
+                status_codes=status_codes, exclude_length=str(length),
+                timeout=timeout, auto_calibrate=False, on_notice=on_notice, runner=run,
+            )
+        raise GobusterError(cls._failure_message(exclude_length, length))
 
     @staticmethod
     def _wildcard_length(text: str) -> int | None:

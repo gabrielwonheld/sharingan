@@ -113,8 +113,9 @@ clears it (it belonged to the other project). The explicit two-argument forms
 (`scan <name> <host>`, etc.) keep working for first-time or ad-hoc targets.
 
 For `fuzz` and `crawl`, which need a full URL, the current host supplies
-`http://<addr>` (a host only stores an address, not a scheme); pass the URL
-explicitly to use HTTPS or a path.
+`<scheme>://<addr>` — the scheme is inferred from the host's latest scan
+(`https` if port 443 is open, otherwise `http`). Pass the URL explicitly to
+force a scheme or add a path.
 
 ```text
 Sharingan [16bits] > use 16bits

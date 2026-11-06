@@ -230,20 +230,36 @@ class InteractiveConsole:
 
     def _resolve_name_url(self, args, usage: str):
         """Resolves (name, url) for the web commands (fuzz/crawl). With two args
-        they're explicit; with none, the current host is used and the URL is
-        assumed to be `http://<addr>` (the host only stores an address, not a
-        scheme) — the caller tells the user which URL it picked. Returns
-        (None, None) after printing an error when neither form applies."""
+        they're explicit; with none, the current host is used and the URL is built
+        as `<scheme>://<addr>` — the host stores only an address, so the scheme is
+        inferred from what the scan found (`https` if 443 is open, else `http`).
+        The caller tells the user which URL it picked. Returns (None, None) after
+        printing an error when neither form applies."""
         if len(args) >= 2:
             return args[0], args[1]
         if not args:
             name, addr = self._current_host_pair()
             if addr:
-                return name, f"http://{addr}"
+                return name, f"{self._scheme_for_host(addr)}://{addr}"
             self._no_current_host(usage)
             return None, None
         self.console.print(f"[red]Usage: {usage}[/red]")
         return None, None
+
+    def _scheme_for_host(self, addr: str) -> str:
+        """`https` if the host's latest scan found port 443 open, else `http`.
+        Lets a bare `fuzz`/`crawl` on the current host hit the right scheme (an
+        HTTPS-only site would 301 every http path — the catch-all the user hit)."""
+        host = self._hosts_query().filter_by(addr=addr).first()
+        if host:
+            ports = {
+                s.port for s in self.session_db.query(Service).filter(
+                    Service.host_id == host.id, current_services_filter()
+                )
+            }
+            if 443 in ports:
+                return 'https'
+        return 'http'
 
     def command_whois(self, args):
         if args:
